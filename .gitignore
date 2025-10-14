@@ -1,0 +1,4 @@
+﻿# ignore comuns
+node_modules/
+.env
+*.log

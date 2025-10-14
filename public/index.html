@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title data-i18n="title">InterChat • SMS/MMS Platform</title>
+<script src="https://unpkg.com/i18next@23.7.6/dist/umd/i18next.min.js"></script>
+<style>
+  :root{
+    --app:#F7F7F8;
+    --card:#FFFFFF;
+    --muted:#6B7280;
+    --text:#0F172A;
+    --border:#E5E7EB;
+    --divider:#EAEAEA;
+    --purple:#6C4EFF;
+    --purple-2:#7C3AED;
+    --blue:#2563EB;
+    --green:#16A34A;
+    --shadow:0 8px 24px rgba(15,23,42,.06);
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--app);
+    color:var(--text);
+    font:16px/1.45 -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+  }
+  .sr-only{position:absolute;clip:rect(0 0 0 0);clip-path:inset(50%);width:1px;height:1px;overflow:hidden;white-space:nowrap}
+  .app{
+    max-width:1300px;
+    margin:24px auto;
+    padding:0 16px;
+  }
+  .shell{
+    display:grid;
+    grid-template-columns:300px 1fr 360px;
+    gap:16px;
+  }
+  .panel{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    display:flex;
+    flex-direction:column;
+    min-height:70vh;
+    max-height:calc(100vh - 48px);
+    overflow:hidden;
+  }
+  .panel header{
+    position:sticky; top:0; z-index:5;
+    background:#fff;
+    border-bottom:1px solid var(--divider);
+    padding:14px 16px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .back-btn{
+    display:none;
+    border:1px solid var(--border);
+    background:#fff;
+    width:36px;height:36px;border-radius:999px;
+    align-items:center;justify-content:center;
+  }
+  button, .icon-btn{
+    cursor:pointer;
+    border:1px solid var(--border);
+    background:#fff;
+    height:36px; width:36px;
+    border-radius:999px; display:inline-flex;
+    align-items:center; justify-content:center;
+    transition:transform .04s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .icon-btn:hover, .back-btn:hover{box-shadow:0 4px 12px rgba(15,23,42,.08)}
+  .icon-btn:active{transform:scale(.98)}
+  .icon-btn:focus-visible, .back-btn:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible{
+    outline:2px solid color-mix(in srgb, var(--purple) 35%, transparent);
+    outline-offset:2px;
+  }
+  .title{font-weight:700; letter-spacing:.2px}
+  .muted{color:var(--muted)}
+  .tag{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:12px; padding:.25rem .5rem; border-radius:999px;
+    background:#EEF2FF; color:#4338CA; border:1px solid #E0E7FF;
+  }
+  .lead{background:#ECFEFF;color:#0EA5E9;border-color:#BAE6FD}
+  /* LEFT: list */
+  .search{
+    padding:10px 12px; border:1px solid var(--border); border-radius:10px;
+    display:flex; align-items:center; gap:8px; background:#fff;
+  }
+  .search input{
+    border:0; outline:0; width:100%; font:inherit; background:transparent;
+  }
+  .threads{overflow:auto; padding:8px}
+  .item{
+    display:grid; grid-template-columns:48px 1fr auto; align-items:center;
+    gap:10px; padding:10px; border-radius:12px;
+    cursor:pointer; text-decoration:none; color:inherit;
+  }
+  .item:hover{background:#F3F4F6}
+  .item[aria-current="true"]{background:#F5F5F7; border:1px solid var(--border)}
+  .name{font-weight:600; font-size:14px}
+  .sub{font-size:12px; color:var(--muted)}
+  .time{font-size:12px; color:#9CA3AF}
+  .dot{width:8px;height:8px;border-radius:999px;background:var(--purple-2); display:inline-block}
+  /* avatars */
+  .avatar{
+    width:44px;height:44px;border-radius:999px; display:grid; place-items:center; overflow:hidden;
+    background:linear-gradient(135deg,#d1d9ff,#f1e7ff);
+    border:1px solid #E8E8F5;
+    font-weight:700; color:#3730A3;
+  }
+  .avatar svg{width:100%;height:100%}
+  /* CENTER: chat */
+  .chat-scroll{overflow:auto; padding:0 16px 92px; flex:1}
+  .chat-header{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  .chat-id{display:flex; align-items:center; gap:12px}
+  .pillbar{display:flex; align-items:center; gap:8px}
+  .bubble{
+    max-width:min(720px, 78%);
+    padding:12px 14px; border-radius:18px; line-height:1.5;
+    margin:8px 0; background:#F1F5F9; border:1px solid var(--border);
+  }
+  .bubble.from-me{
+    margin-left:auto; background:var(--purple); color:#fff; border-top-right-radius:6px;
+  }
+  .message-wrapper{margin:8px 0; display:flex; flex-direction:column; align-items:flex-start}
+  .message-wrapper .bubble.from-me{align-self:flex-end}
+  .message-wrapper .timestamp{align-self:flex-end}
+  .timestamp{color:#9CA3AF; font-size:11px; margin:2px 8px}
+  .translate-btn{
+    display:none; background:transparent; border:0; color:#6B7280; cursor:pointer;
+    font-size:12px; padding:0; margin-top:4px;
+  }
+  .message-wrapper:hover .translate-btn{display:inline}
+  .show-original-btn{
+    display:none; background:transparent; border:0; color:#6B7280; cursor:pointer;
+    font-size:12px; padding:0; margin-top:4px;
+  }
+  .message-wrapper:hover .show-original-btn.available{display:inline}
+  .composer{
+    position:sticky; bottom:0; padding:12px 16px; background:linear-gradient(#fff 80%, rgba(255,255,255,.85));
+    border-top:1px solid var(--divider);
+  }
+  .compose-bar{
+    display:flex; align-items:center; gap:10px; background:#fff; border:1px solid var(--border);
+    border-radius:12px; padding:8px 10px;
+  }
+  .compose-input{flex:1; border:0; outline:0; font:inherit; background:transparent}
+  .send{
+    background:#F1F5F9; border-color:#E2E8F0; color:#94A3B8;
+  }
+  .send.enabled{background:var(--purple); color:#fff; border-color:var(--purple)}
+  /* RIGHT: settings */
+  .settings-card{padding:16px; overflow:auto}
+  .form-group{margin-bottom:16px}
+  .form-label{display:block; font-size:13px; color:#6B7280; margin-bottom:6px; font-weight:600}
+  .form-select{
+    width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px;
+    background:#fff; font:inherit;
+  }
+  .empty-state{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100%; text-align:center; color:var(--muted); padding:32px;
+  }
+  .empty-state svg{margin-bottom:16px; opacity:0.5}
+  .loading{
+    display:flex; align-items:center; justify-content:center; padding:20px;
+    color:var(--muted);
+  }
+  /* responsive */
+  @media (max-width:1024px){
+    .shell{grid-template-columns:1fr; gap:12px}
+    .panel{max-height:none}
+    .back-btn{display:inline-flex}
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="shell">
+      <!-- LEFT COLUMN: Conversations -->
+      <section class="panel" aria-label="Lista de conversas">
+        <header>
+          <button class="back-btn" aria-label="Voltar">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="title" style="font-size:18px" data-i18n="conversations">Conversas</div>
+        </header>
+        <div style="padding:12px 12px 6px">
+          <div class="search" role="search">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="#94A3B8" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="#94A3B8" stroke-width="2" stroke-linecap="round"/></svg>
+            <input type="text" data-i18n="[placeholder]search_placeholder" placeholder="Buscar..." aria-label="Search"/>
+          </div>
+        </div>
+        <div class="threads" role="list" id="conversationsList">
+          <div class="loading" id="conversationsLoading">
+            <div data-i18n="loading">Carregando...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CENTER COLUMN: Chat -->
+      <section class="panel" aria-label="Janela do chat">
+        <header class="chat-header" id="chatHeader" style="display:none">
+          <button class="back-btn" aria-label="Voltar">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="chat-id">
+            <div class="avatar" aria-hidden="true" id="chatAvatar">?</div>
+            <div>
+              <div class="title" id="chatName">Nome do Contato</div>
+              <div class="muted" style="font-size:12px" id="chatNumber">(000) 000-0000</div>
+            </div>
+          </div>
+        </header>
+        
+        <div class="empty-state" id="emptyState">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <h3 data-i18n="select_conversation">Selecione uma conversa</h3>
+          <p data-i18n="select_conversation_desc">Escolha uma conversa da lista para começar a enviar mensagens</p>
+        </div>
+
+        <div class="chat-scroll" id="messagesContainer" style="display:none">
+          <div id="messagesList"></div>
+        </div>
+
+        <div class="composer" id="composer" style="display:none">
+          <div class="compose-bar">
+            <textarea class="compose-input" id="messageInput" data-i18n="[placeholder]type_message" placeholder="Digite sua mensagem..." rows="1"></textarea>
+            <button class="send" id="sendBtn" aria-label="Enviar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22,2 15,22 11,13 2,9"></polygon>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT COLUMN: Settings -->
+      <section class="panel" aria-label="Configurações">
+        <header>
+          <div class="title" style="font-size:18px" data-i18n="settings">Configurações</div>
+        </header>
+        <div class="settings-card">
+          <div class="form-group">
+            <label class="form-label" for="uiLang" data-i18n="ui_language">Idioma da Interface</label>
+            <select class="form-select" id="uiLang">
+              <option value="pt">Português</option>
+              <option value="en">English</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label" for="outLang" data-i18n="output_language">Idioma de Saída</label>
+            <select class="form-select" id="outLang">
+              <option value="" data-i18n="no_translation">Sem tradução</option>
+              <option value="pt">Português</option>
+              <option value="en">English</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="it">Italiano</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="zh">中文</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label" data-i18n="connection_status">Status da Conexão</div>
+            <div class="tag" id="connectionStatus">
+              <div class="dot"></div>
+              <span data-i18n="connecting">Conectando...</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script>
+// ======= i18next Configuration =======
+const translations = {
+  pt: {
+    translation: {
+      title: 'InterChat • Plataforma SMS/MMS',
+      conversations: 'Conversas',
+      search_placeholder: 'Buscar...',
+      loading: 'Carregando...',
+      select_conversation: 'Selecione uma conversa',
+      select_conversation_desc: 'Escolha uma conversa da lista para começar a enviar mensagens',
+      type_message: 'Digite sua mensagem...',
+      settings: 'Configurações',
+      ui_language: 'Idioma da Interface',
+      output_language: 'Idioma de Saída',
+      no_translation: 'Sem tradução',
+      connection_status: 'Status da Conexão',
+      connecting: 'Conectando...',
+      connected: 'Conectado',
+      disconnected: 'Desconectado',
+      send: 'Enviar',
+      error_loading_conversations: 'Erro ao carregar conversas',
+      error_loading_messages: 'Erro ao carregar mensagens',
+      error_sending_message: 'Erro ao enviar mensagem',
+      translate: 'Traduzir',
+      translating: 'Traduzindo...',
+      show_original: 'Mostrar original'
+    }
+  },
+  en: {
+    translation: {
+      title: 'InterChat • SMS/MMS Platform',
+      conversations: 'Conversations',
+      search_placeholder: 'Search...',
+      loading: 'Loading...',
+      select_conversation: 'Select a conversation',
+      select_conversation_desc: 'Choose a conversation from the list to start messaging',
+      type_message: 'Type your message...',
+      settings: 'Settings',
+      ui_language: 'Interface Language',
+      output_language: 'Output Language',
+      no_translation: 'No translation',
+      connection_status: 'Connection Status',
+      connecting: 'Connecting...',
+      connected: 'Connected',
+      disconnected: 'Disconnected',
+      send: 'Send',
+      error_loading_conversations: 'Error loading conversations',
+      error_loading_messages: 'Error loading messages',
+      error_sending_message: 'Error sending message',
+      translate: 'Translate',
+      translating: 'Translating...',
+      show_original: 'Show original'
+    }
+  },
+  es: {
+    translation: {
+      title: 'InterChat • Plataforma SMS/MMS',
+      conversations: 'Conversaciones',
+      search_placeholder: 'Buscar...',
+      loading: 'Cargando...',
+      select_conversation: 'Selecciona una conversación',
+      select_conversation_desc: 'Elige una conversación de la lista para empezar a enviar mensajes',
+      type_message: 'Escribe tu mensaje...',
+      settings: 'Configuración',
+      ui_language: 'Idioma de la Interfaz',
+      output_language: 'Idioma de Salida',
+      no_translation: 'Sin traducción',
+      connection_status: 'Estado de Conexión',
+      connecting: 'Conectando...',
+      connected: 'Conectado',
+      disconnected: 'Desconectado',
+      send: 'Enviar',
+      error_loading_conversations: 'Error al cargar conversaciones',
+      error_loading_messages: 'Error al cargar mensajes',
+      error_sending_message: 'Error al enviar mensaje',
+      translate: 'Traducir',
+      translating: 'Traduciendo...',
+      show_original: 'Mostrar original'
+    }
+  },
+  fr: {
+    translation: {
+      title: 'InterChat • Plateforme SMS/MMS',
+      conversations: 'Conversations',
+      search_placeholder: 'Rechercher...',
+      loading: 'Chargement...',
+      select_conversation: 'Sélectionnez une conversation',
+      select_conversation_desc: 'Choisissez une conversation dans la liste pour commencer à envoyer des messages',
+      type_message: 'Tapez votre message...',
+      settings: 'Paramètres',
+      ui_language: 'Langue de l\'Interface',
+      output_language: 'Langue de Sortie',
+      no_translation: 'Pas de traduction',
+      connection_status: 'État de la Connexion',
+      connecting: 'Connexion...',
+      connected: 'Connecté',
+      disconnected: 'Déconnecté',
+      send: 'Envoyer',
+      error_loading_conversations: 'Erreur lors du chargement des conversations',
+      error_loading_messages: 'Erreur lors du chargement des messages',
+      error_sending_message: 'Erreur lors de l\'envoi du message',
+      translate: 'Traduire',
+      translating: 'Traduction...',
+      show_original: 'Afficher l\'original'
+    }
+  }
+};
+
+i18next.init({
+  lng: localStorage.getItem('uiLang') || 'pt',
+  resources: translations,
+  fallbackLng: 'pt',
+  defaultNS: 'translation'
+});
+
+// ======= State Management =======
+const state = {
+  conversations: [],
+  active: null,
+  messages: [],
+  uiLang: localStorage.getItem('uiLang') || 'pt',
+  outLang: localStorage.getItem('outLang') || '',
+  phoneNumberId: null
+};
+
+// ======= API Module =======
+const API = {
+  async listConversations(pageToken = null, maxResults = 40) {
+            let url = `/api/conversations?maxResults=${maxResults}`;
+            if (pageToken) {
+                url += `&pageToken=${pageToken}`;
+            }
+            const response = await fetch(url);
+            return response.json();
+        },
+
+  async listMessages(phoneNumberId, participants, page = 1, limit = 40) {
+    const params = new URLSearchParams({
+      phoneNumberId,
+      participants,
+      page,
+      limit
+    });
+    const response = await fetch(`/api/messages?${params}`);
+    return response.json();
+  },
+
+  async sendMessage({ text, to, from, targetLang, sourceLang }) {
+    const response = await fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, to, from, targetLang, sourceLang })
+    });
+    return response.json();
+  }
+};
+
+// Per-message translation API
+API.translateText = async function({ text, targetLang, prompt }) {
+  const response = await fetch('/api/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, targetLang, prompt })
+  });
+  return response.json();
+};
+
+// ======= UI Functions =======
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (key.startsWith('[placeholder]')) {
+      el.placeholder = i18next.t(key.substring(13));
+    } else {
+      el.textContent = i18next.t(key);
+    }
+  });
+  document.title = i18next.t('title');
+}
+
+function getInitials(name) {
+  return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 12C14.7614 12 17 9.76142 17 7C17 4.23858 14.7614 2 12 2C9.23858 2 7 4.23858 7 7C7 9.76142 9.23858 12 12 12Z" fill="currentColor"/>
+    <path d="M12 14C7.58172 14 4 17.5817 4 22H20C20 17.5817 16.4183 14 12 14Z" fill="currentColor"/>
+  </svg>`;
+}
+
+function formatPhoneNumber(phone) {
+  if (!phone) return '';
+  const cleaned = phone.replace(/\D/g, '');
+  if (cleaned.length === 11) {
+    return `(${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7)}`;
+  }
+  return phone;
+}
+
+function formatTime(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diff = now - date;
+  
+  if (diff < 24 * 60 * 60 * 1000) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else if (diff < 7 * 24 * 60 * 60 * 1000) {
+    return date.toLocaleDateString([], { weekday: 'short' });
+  } else {
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+}
+
+// ======= Conversations =======
+async function loadConversations() {
+  // Prevent multiple simultaneous loads
+  if (window.isLoadingConversations) {
+    console.log('⚠️ Already loading conversations, skipping...');
+    return;
+  }
+  window.isLoadingConversations = true;
+  
+  const list = document.getElementById('conversationsList');
+  const loading = document.getElementById('conversationsLoading');
+  
+  try {
+    console.log('🔄 Loading conversations...');
+    loading.style.display = 'block';
+    
+    // Load all conversations using pagination
+    let allConversations = [];
+    let pageToken = null;
+    let hasMore = true;
+    const PAGE_SIZE = 51;           // itens por página (OpenPhone maxResults)
+    const TOTAL_LIMIT = 50;         // teto total de conversas a carregar
+    
+    while (hasMore && allConversations.length < TOTAL_LIMIT) {
+      const response = await API.listConversations(pageToken, PAGE_SIZE);
+      console.log(`📄 Page loaded: ${response.data?.length || 0} conversations`);
+      
+      if (response.data && response.data.length > 0) {
+        allConversations = allConversations.concat(response.data);
+        
+        // Check if there are more pages
+        if (response.nextPageToken) {
+          pageToken = response.nextPageToken;
+        } else {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    // Enforce TOTAL_LIMIT just in case we crossed it
+    if (allConversations.length > TOTAL_LIMIT) {
+      allConversations = allConversations.slice(0, TOTAL_LIMIT);
+    }
+    
+    if (allConversations.length > 0) {
+      console.log(`📊 Before sorting: ${allConversations.length} conversations`);
+      
+      // Remove duplicates based on conversation ID
+      const uniqueConversations = allConversations.filter((conv, index, self) => 
+        index === self.findIndex(c => c.id === conv.id)
+      );
+      
+      console.log(`🔍 After deduplication: ${uniqueConversations.length} conversations`);
+      
+      // Sort conversations by last activity - newest first, oldest last (top to bottom)
+      uniqueConversations.sort((a, b) => {
+        const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
+        const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
+        return timeB - timeA; // Descending order - newest first, oldest last
+      });
+      
+      console.log(`✅ Sorted conversations by last activity (newest first)`);
+      
+      state.conversations = uniqueConversations;
+      renderConversations();
+      console.log(`🎯 Rendered ${uniqueConversations.length} conversations total`);
+    } else {
+      list.innerHTML = '<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">Nenhuma conversa encontrada</div>';
+    }
+  } catch (error) {
+    console.error('Error loading conversations:', error);
+    list.innerHTML = `<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('error_loading_conversations')}</div>`;
+  } finally {
+    loading.style.display = 'none';
+    window.isLoadingConversations = false;
+  }
+}
+
+function renderConversations() {
+  const list = document.getElementById('conversationsList');
+  console.log(`🎨 Rendering ${state.conversations.length} conversations`);
+  
+  // Prevent multiple simultaneous renders
+  if (window.isRendering) {
+    console.log('⚠️ Render already in progress, skipping...');
+    return;
+  }
+  window.isRendering = true;
+  
+  // Clear the list
+  list.innerHTML = '';
+  
+  // Double-check for duplicates before rendering
+  const uniqueConversations = state.conversations.filter((conv, index, self) => 
+    index === self.findIndex(c => c.id === conv.id)
+  );
+  
+  if (uniqueConversations.length !== state.conversations.length) {
+    console.log(`🔧 Removed ${state.conversations.length - uniqueConversations.length} duplicates before rendering`);
+    state.conversations = uniqueConversations;
+  }
+  
+  state.conversations.forEach(conv => {
+    const item = document.createElement('div');
+    item.className = 'item';
+    item.setAttribute('role', 'listitem');
+    if (state.active && state.active.id === conv.id) {
+      item.setAttribute('aria-current', 'true');
+    }
+    
+    // Get contact information if available
+    const contactInfo = conv.participantContacts?.[0];
+    let displayName = conv.participants?.[0] || conv.phoneNumber || 'Unknown';
+    let displaySubtitle = '';
+    
+    if (contactInfo) {
+      // Use contact name if available
+      if (contactInfo.displayName) {
+        displayName = contactInfo.displayName;
+      } else if (contactInfo.firstName || contactInfo.lastName) {
+        displayName = `${contactInfo.firstName || ''} ${contactInfo.lastName || ''}`.trim();
+      }
+      
+      // Add company/role as subtitle if available
+      if (contactInfo.company || contactInfo.role) {
+        displaySubtitle = `${contactInfo.company || ''} ${contactInfo.role || ''}`.trim();
+      }
+    }
+    
+    const lastMessage = conv.lastMessage || {};
+    const messageText = lastMessage.content || lastMessage.text || lastMessage.body || '';
+    const fullText = messageText.trim() || 'Sem mensagens';
+    const displayText = fullText.length > 20 ? fullText.substring(0, 20) + '...' : fullText;
+    
+    item.innerHTML = `
+      <div class="avatar" aria-hidden="true">${getInitials(displayName)}</div>
+      <div>
+        <div class="name">${displayName}</div>
+        <div class="sub">${displaySubtitle || displayText}</div>
+      </div>
+      <div class="time">${formatTime(lastMessage.createdAt || conv.updatedAt)}</div>
+    `;
+    
+    item.addEventListener('click', () => selectConversation(conv));
+    list.appendChild(item);
+  });
+  
+  // Release rendering flag
+  window.isRendering = false;
+}
+
+function selectConversation(conv) {
+  // Get contact information if available
+  const contactInfo = conv.participantContacts?.[0];
+  let displayName = conv.participants?.[0] || conv.phoneNumber;
+  
+  if (contactInfo) {
+    if (contactInfo.displayName) {
+      displayName = contactInfo.displayName;
+    } else if (contactInfo.firstName || contactInfo.lastName) {
+      displayName = `${contactInfo.firstName || ''} ${contactInfo.lastName || ''}`.trim();
+    }
+  }
+  
+  state.active = {
+    id: conv.id,
+    phoneNumberId: conv.phoneNumberId || state.phoneNumberId,
+    participant: conv.participants?.[0] || conv.phoneNumber,
+    name: displayName,
+    contactInfo: contactInfo
+  };
+  
+  renderConversations();
+  showChatInterface();
+  loadMessages();
+}
+
+function showChatInterface() {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('chatHeader').style.display = 'flex';
+  document.getElementById('messagesContainer').style.display = 'block';
+  document.getElementById('composer').style.display = 'block';
+  
+  // Update chat header
+  document.getElementById('chatAvatar').innerHTML = getInitials(state.active.name);
+  document.getElementById('chatName').textContent = state.active.name;
+  document.getElementById('chatNumber').textContent = formatPhoneNumber(state.active.participant);
+}
+
+// ======= Messages =======
+async function loadMessages() {
+  if (!state.active) return;
+  
+  const container = document.getElementById('messagesList');
+  container.innerHTML = '<div class="loading">Carregando mensagens...</div>';
+  
+  try {
+    const response = await API.listMessages(
+      state.active.phoneNumberId,
+      state.active.participant
+    );
+    
+    // Sort messages by creation date - oldest first, newest last (bottom)
+    const messages = response.data || [];
+    messages.sort((a, b) => {
+      const timeA = new Date(a.createdAt);
+      const timeB = new Date(b.createdAt);
+      return timeA - timeB; // Ascending order - oldest first, newest last
+    });
+    
+    state.messages = messages;
+    renderMessages();
+  } catch (error) {
+    console.error('Error loading messages:', error);
+    container.innerHTML = `<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('error_loading_messages')}</div>`;
+  }
+}
+
+function renderMessages() {
+  const container = document.getElementById('messagesList');
+  container.innerHTML = '';
+  
+  state.messages.forEach(message => {
+    const messageWrapper = document.createElement('div');
+    messageWrapper.className = 'message-wrapper';
+
+    const bubble = document.createElement('div');
+    const isFromMe = message.direction === 'outgoing' || 
+                     (message.from && message.from === state.active.phoneNumberId);
+
+    bubble.className = 'bubble' + (isFromMe ? ' from-me' : '');
+    bubble.textContent = message.content || message.text || '';
+    const originalText = bubble.textContent;
+    
+    // Add individual timestamp for each message
+    const timestamp = document.createElement('div');
+    timestamp.className = 'timestamp';
+    timestamp.textContent = formatTime(message.createdAt);
+    
+    messageWrapper.appendChild(bubble);
+
+    // Per-message buttons: Translate / Show original (hover)
+    const translateBtn = document.createElement('button');
+    translateBtn.className = 'translate-btn';
+    translateBtn.setAttribute('data-i18n', 'translate');
+    translateBtn.textContent = i18next.t('translate');
+    translateBtn.style.alignSelf = isFromMe ? 'flex-end' : 'flex-start';
+
+    const showOriginalBtn = document.createElement('button');
+    showOriginalBtn.className = 'show-original-btn';
+    showOriginalBtn.setAttribute('data-i18n', 'show_original');
+    showOriginalBtn.textContent = i18next.t('show_original');
+    showOriginalBtn.style.alignSelf = isFromMe ? 'flex-end' : 'flex-start';
+
+    // Hide translate button if message already translated for current UI language
+    const targetLangInit = state.uiLang || 'pt';
+    if (message._isTranslated && message._translatedLang === targetLangInit) {
+      bubble.textContent = message._translatedText || originalText;
+      showOriginalBtn.classList.add('available');
+      translateBtn.style.display = 'none';
+    }
+    
+    translateBtn.addEventListener('click', async () => {
+      try {
+        translateBtn.disabled = true;
+        const prevLabel = translateBtn.textContent;
+        translateBtn.textContent = i18next.t('translating');
+        const targetLang = state.uiLang || 'pt';
+        const prompt = `Traduza o texto para ${targetLang} preservando sentido e tom, sem traduzir blocos de código. Responda apenas com o texto traduzido.`;
+        // Use cached translation if available for current target language
+        if (!message._translatedText || message._translatedLang !== targetLang) {
+          const response = await API.translateText({ text: originalText, targetLang, prompt });
+          const translated = response?.translatedText || originalText;
+          message._translatedText = translated;
+          message._translatedLang = targetLang;
+        }
+        bubble.textContent = message._translatedText;
+        message._isTranslated = true;
+        showOriginalBtn.classList.add('available');
+        translateBtn.textContent = prevLabel || i18next.t('translate');
+        // Hide translate button while translated
+        translateBtn.style.display = 'none';
+      } catch (err) {
+        console.error('Translate failed:', err);
+        translateBtn.textContent = i18next.t('translate');
+      } finally {
+        translateBtn.disabled = false;
+      }
+    });
+    
+    showOriginalBtn.addEventListener('click', () => {
+      if (!message._translatedText) return;
+      bubble.textContent = originalText;
+      message._isTranslated = false;
+      showOriginalBtn.classList.remove('available');
+      // Show translate button again
+      translateBtn.style.display = '';
+    });
+    
+    messageWrapper.appendChild(translateBtn);
+    messageWrapper.appendChild(showOriginalBtn);
+    messageWrapper.appendChild(timestamp);
+    container.appendChild(messageWrapper);
+  });
+  
+  // Scroll to bottom
+  const messagesContainer = document.getElementById('messagesContainer');
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+// ======= Send Message =======
+const messageInput = document.getElementById('messageInput');
+const sendBtn = document.getElementById('sendBtn');
+
+messageInput.addEventListener('input', () => {
+  const hasText = messageInput.value.trim().length > 0;
+  sendBtn.classList.toggle('enabled', hasText);
+});
+
+messageInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+sendBtn.addEventListener('click', sendMessage);
+
+async function sendMessage() {
+  const text = messageInput.value.trim();
+  if (!text || !state.active) return;
+  
+  try {
+    sendBtn.disabled = true;
+    
+    await API.sendMessage({
+      text,
+      to: state.active.participant,
+      targetLang: state.outLang || undefined
+    });
+    
+    messageInput.value = '';
+    sendBtn.classList.remove('enabled');
+    
+    // Reload messages to show the sent message
+    await loadMessages();
+  } catch (error) {
+    console.error('Error sending message:', error);
+    alert(i18next.t('error_sending_message'));
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+// ======= Language Settings =======
+document.getElementById('uiLang').addEventListener('change', (e) => {
+  state.uiLang = e.target.value;
+  localStorage.setItem('uiLang', state.uiLang);
+  i18next.changeLanguage(state.uiLang).then(() => {
+    applyI18n();
+    // Re-render messages to adjust button labels/visibility for new language
+    renderMessages();
+  });
+});
+
+document.getElementById('outLang').addEventListener('change', (e) => {
+  state.outLang = e.target.value;
+  localStorage.setItem('outLang', state.outLang);
+});
+
+// ======= SSE for Real-time Updates =======
+function updateConversationWithNewMessage(message) {
+  // Find the conversation that this message belongs to
+  const participantNumber = message.from === state.phoneNumberId ? message.to[0] : message.from;
+  
+  // Find existing conversation
+  const existingConvIndex = state.conversations.findIndex(conv => 
+    conv.participants?.includes(participantNumber)
+  );
+  
+  if (existingConvIndex !== -1) {
+    // Update existing conversation
+    state.conversations[existingConvIndex].lastMessage = message;
+    state.conversations[existingConvIndex].lastActivityAt = message.createdAt;
+    
+    // Re-sort conversations by last activity
+    state.conversations.sort((a, b) => {
+      const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
+      const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
+      return timeB - timeA; // Descending order - newest first
+    });
+    
+    // Re-render conversations
+    renderConversations();
+    console.log('✅ Updated existing conversation and re-sorted');
+  } else {
+    // New conversation - reload all conversations
+    console.log('🆕 New conversation detected, reloading all');
+    loadConversations();
+  }
+}
+
+function startSSE() {
+  try {
+    const eventSource = new EventSource('/api/sse');
+    
+    eventSource.addEventListener('openphone', (event) => {
+      const data = JSON.parse(event.data || '{}');
+      const message = data?.data || data;
+      
+      if (!message) return;
+      
+      console.log('📨 SSE message received:', message.from, '->', message.to);
+      
+      // If message is for active conversation, reload messages
+      if (state.active && 
+          (message.participants?.includes(state.active.participant) || 
+           message.from === state.active.participant)) {
+        console.log('🔄 Reloading messages for active conversation');
+        loadMessages();
+      } else {
+        // Instead of reloading all conversations, just update the specific conversation
+        console.log('📝 Updating conversation list for new message');
+        updateConversationWithNewMessage(message);
+      }
+    });
+    
+    eventSource.addEventListener('open', () => {
+      updateConnectionStatus('connected');
+    });
+    
+    eventSource.addEventListener('error', () => {
+      updateConnectionStatus('disconnected');
+    });
+    
+  } catch (error) {
+    console.warn('SSE not available:', error);
+    updateConnectionStatus('disconnected');
+  }
+}
+
+function updateConnectionStatus(status) {
+  const statusEl = document.getElementById('connectionStatus');
+  const statusText = statusEl.querySelector('span');
+  
+  statusEl.className = 'tag';
+  if (status === 'connected') {
+    statusEl.classList.add('lead');
+    statusText.setAttribute('data-i18n', 'connected');
+  } else {
+    statusText.setAttribute('data-i18n', status === 'disconnected' ? 'disconnected' : 'connecting');
+  }
+  
+  applyI18n();
+}
+
+// ======= Initialization =======
+async function init() {
+  // Set initial language values
+  document.getElementById('uiLang').value = state.uiLang;
+  document.getElementById('outLang').value = state.outLang;
+  
+  // Apply translations
+  applyI18n();
+  
+  // Load conversations
+  await loadConversations();
+  
+  // Start SSE
+  startSSE();
+}
+
+// Start the application
+init();
+</script>
+</body>
+</html>
