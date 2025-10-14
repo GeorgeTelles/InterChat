@@ -1,0 +1,72 @@
+{
+  "totalConversations": 133,
+  "groupsCount": 2,
+  "soloCount": 131,
+  "participantsTypes": {
+    "stringParticipants": 133,
+    "objectParticipants": 0,
+    "mixedParticipants": 0
+  },
+  "examples": {
+    "groups": [
+      {
+        "id": "CN9024900550f34374ba54322968428ab7",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+16175946706",
+          "+17866583767",
+          "+18573124479"
+        ]
+      },
+      {
+        "id": "CN3b8a345160364a1baa208b1e73ebbb90",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+16172595756",
+          "+16175946706",
+          "+17812153578",
+          "+17813253859",
+          "+17866583767",
+          "+18573335374"
+        ]
+      }
+    ],
+    "solo": [
+      {
+        "id": "CN767e3e0c7f3544598939e06dc934722d",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+17816080772"
+        ]
+      },
+      {
+        "id": "CNfbbce635a2fb49da89a9c0015231bc28",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+12035617951"
+        ]
+      },
+      {
+        "id": "CN39299500105f43739f092c513b120f8c",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+14016394658"
+        ]
+      },
+      {
+        "id": "CNa7f4d8f27e8f4646a1ba18e1a25d1eaa",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+4340163946558"
+        ]
+      },
+      {
+        "id": "CNe6840593deb24db7be68dd28aef50851",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+17142723693"
+        ]
+      }
+    ]
+  }
+}

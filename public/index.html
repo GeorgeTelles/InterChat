@@ -526,20 +526,23 @@ async function loadConversations() {
     console.log('🔄 Loading conversations...');
     loading.style.display = 'block';
     
-    // Load all conversations using pagination
+    // Load conversations using pagination (fetch multiple pages, then filter/sort/limit)
     let allConversations = [];
     let pageToken = null;
     let hasMore = true;
-    const PAGE_SIZE = 51;           // itens por página (OpenPhone maxResults)
-    const TOTAL_LIMIT = 50;         // teto total de conversas a carregar
-    
-    while (hasMore && allConversations.length < TOTAL_LIMIT) {
+    const PAGE_SIZE = 51;            // itens por página (OpenPhone maxResults)
+    const TOTAL_LIMIT = 50;          // teto total de conversas a exibir
+    const MAX_PAGES = 5;             // número máximo de páginas a carregar
+    let pagesLoaded = 0;
+
+    while (hasMore && pagesLoaded < MAX_PAGES) {
       const response = await API.listConversations(pageToken, PAGE_SIZE);
-      console.log(`📄 Page loaded: ${response.data?.length || 0} conversations`);
-      
+      console.log(`📄 Page ${pagesLoaded + 1} loaded: ${response.data?.length || 0} conversations`);
+
       if (response.data && response.data.length > 0) {
         allConversations = allConversations.concat(response.data);
-        
+        pagesLoaded++;
+
         // Check if there are more pages
         if (response.nextPageToken) {
           pageToken = response.nextPageToken;
@@ -551,10 +554,7 @@ async function loadConversations() {
       }
     }
     
-    // Enforce TOTAL_LIMIT just in case we crossed it
-    if (allConversations.length > TOTAL_LIMIT) {
-      allConversations = allConversations.slice(0, TOTAL_LIMIT);
-    }
+    // Nota: não aplicar TOTAL_LIMIT aqui; faremos após filtro/ordenação
     
     if (allConversations.length > 0) {
       console.log(`📊 Before sorting: ${allConversations.length} conversations`);
@@ -565,19 +565,32 @@ async function loadConversations() {
       );
       
       console.log(`🔍 After deduplication: ${uniqueConversations.length} conversations`);
+
+      // Discard conversations with more than one participant (groups)
+      const soloConversations = uniqueConversations.filter(c => Array.isArray(c.participants) && c.participants.length === 1);
+      const discarded = uniqueConversations.length - soloConversations.length;
+      console.log(`🚫 Discarded ${discarded} group conversations (participants.length > 1)`);
       
       // Sort conversations by last activity - newest first, oldest last (top to bottom)
-      uniqueConversations.sort((a, b) => {
+      soloConversations.sort((a, b) => {
         const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
         const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
         return timeB - timeA; // Descending order - newest first, oldest last
       });
       
-      console.log(`✅ Sorted conversations by last activity (newest first)`);
-      
-      state.conversations = uniqueConversations;
+      console.log(`✅ Sorted solo conversations by last activity (newest first)`);
+
+      // Enforce TOTAL_LIMIT AFTER filtering and sorting to keep most recent solos
+      const finalConversations = soloConversations.length > TOTAL_LIMIT
+        ? soloConversations.slice(0, TOTAL_LIMIT)
+        : soloConversations;
+      if (finalConversations.length !== soloConversations.length) {
+        console.log(`📦 Limited to ${TOTAL_LIMIT} most recent solo conversations`);
+      }
+
+      state.conversations = finalConversations;
       renderConversations();
-      console.log(`🎯 Rendered ${uniqueConversations.length} conversations total`);
+      console.log(`🎯 Rendered ${finalConversations.length} conversations total (solo only)`);
     } else {
       list.innerHTML = '<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">Nenhuma conversa encontrada</div>';
     }

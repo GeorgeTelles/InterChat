@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "echo 'No build step required for this project'"
+    "build": "echo 'No build step required for this project'",
+    "check:conversations": "node scripts/check_conversations.js",
+    "check:number": "node scripts/check_number_conversation.js"
   },
   "keywords": ["chat", "sms", "openphone", "translation", "i18n"],
   "author": "",

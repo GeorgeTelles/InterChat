@@ -1,0 +1,44 @@
+{
+  "mode": "solo",
+  "filterNumber": "+14158516951",
+  "statsSelected": {
+    "mode": "solo",
+    "filterNumber": "+14158516951",
+    "totalSelected": 1,
+    "groupsSelected": 0,
+    "soloSelected": 1
+  },
+  "selected": {
+    "raw": [
+      {
+        "assignedTo": null,
+        "createdAt": "2025-08-06T15:59:08.591Z",
+        "deletedAt": null,
+        "id": "CNfb3bc23ffdb74040822126dd9e5994fc",
+        "lastActivityAt": "2025-08-06T16:22:53.114Z",
+        "lastActivityId": "AC42e017b90dbb49fe8592cd73e0f7485b",
+        "mutedUntil": null,
+        "name": null,
+        "participants": [
+          "+14158516951"
+        ],
+        "phoneNumberId": "PNO9Y6twVm",
+        "snoozedUntil": null,
+        "updatedAt": "2025-08-06T16:22:53.923Z"
+      }
+    ],
+    "reduced": [
+      {
+        "id": "CNfb3bc23ffdb74040822126dd9e5994fc",
+        "phoneNumberId": "PNO9Y6twVm",
+        "participants": [
+          "+14158516951"
+        ],
+        "participantContacts": null,
+        "createdAt": "2025-08-06T15:59:08.591Z",
+        "updatedAt": "2025-08-06T16:22:53.923Z",
+        "lastActivityAt": "2025-08-06T16:22:53.114Z"
+      }
+    ]
+  }
+}

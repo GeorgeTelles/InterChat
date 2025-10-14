@@ -166,8 +166,17 @@ app.get('/api/conversations', async (req, res) => {
     
     const data = await response.json();
     console.log(`   Response data:`, data);
+
+    // Filter out group conversations (participants.length > 1)
+    if (data && Array.isArray(data.data)) {
+      const before = data.data.length;
+      data.data = data.data.filter(c => Array.isArray(c.participants) && c.participants.length === 1);
+      const after = data.data.length;
+      const discarded = before - after;
+      console.log(`   🚫 Discarded ${discarded} group conversations (participants.length > 1). Solo remaining: ${after}`);
+    }
     
-    // Fetch last message for each conversation (no contact enrichment)
+    // Fetch last message for each conversation (no contact enrichment) - only solo after filter
     if (data.data && Array.isArray(data.data)) {
       console.log('🔍 Fetching last messages for conversations...');
       console.log(`   Found ${data.data.length} conversations to process`);

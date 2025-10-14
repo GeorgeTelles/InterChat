@@ -1,0 +1,105 @@
+{
+  "number": "+17866583767",
+  "totals": {
+    "conversationsLoaded": 133,
+    "soloFound": 1,
+    "groupsFound": 2,
+    "probesWithMessages": 0
+  },
+  "soloConversations": [
+    {
+      "id": "CN65600b3619764696a3ed01a4b82d3ea4",
+      "phoneNumberId": "PNO9Y6twVm",
+      "participants": [
+        "+17866583767"
+      ],
+      "lastActivityAt": "2025-10-14T17:52:34.123Z",
+      "updatedAt": "2025-10-14T17:52:34.125Z"
+    }
+  ],
+  "groupConversations": [
+    {
+      "id": "CN9024900550f34374ba54322968428ab7",
+      "phoneNumberId": "PNO9Y6twVm",
+      "participants": [
+        "+16175946706",
+        "+17866583767",
+        "+18573124479"
+      ],
+      "name": "Ernesto's Somerville + Angel Fly",
+      "lastActivityAt": "2025-10-13T20:00:41.344Z"
+    },
+    {
+      "id": "CN3b8a345160364a1baa208b1e73ebbb90",
+      "phoneNumberId": "PNO9Y6twVm",
+      "participants": [
+        "+16172595756",
+        "+16175946706",
+        "+17812153578",
+        "+17813253859",
+        "+17866583767",
+        "+18573335374"
+      ],
+      "name": "Ernesto Boston SMS + Angel Fly",
+      "lastActivityAt": "2025-10-14T20:58:47.659Z"
+    }
+  ],
+  "recentWindowHours": 168,
+  "checks": [
+    {
+      "source": "conversation",
+      "conversationId": "CN65600b3619764696a3ed01a4b82d3ea4",
+      "phoneNumberId": "PNO9Y6twVm",
+      "participants": [
+        "+17866583767"
+      ],
+      "lastActivityAt": "2025-10-14T17:52:34.123Z",
+      "latestMessageAt": "2025-10-14T17:52:34.117Z",
+      "isRecent": true,
+      "messagesSample": [
+        {
+          "id": "AC55fc49f8943e42b987cbe6948caea705",
+          "to": [
+            "+17866583767"
+          ],
+          "from": "+16177989515",
+          "text": "teste 2",
+          "phoneNumberId": "PNO9Y6twVm",
+          "direction": "outgoing",
+          "userId": "USx1BRdT84",
+          "status": "delivered",
+          "createdAt": "2025-10-14T17:52:34.117Z",
+          "updatedAt": "2025-10-14T17:52:35.634Z"
+        },
+        {
+          "id": "ACbdfdffa26a394502ba22463daa1b1d39",
+          "to": [
+            "+17866583767"
+          ],
+          "from": "+16177989515",
+          "text": "teste",
+          "phoneNumberId": "PNO9Y6twVm",
+          "direction": "outgoing",
+          "userId": "USx1BRdT84",
+          "status": "delivered",
+          "createdAt": "2025-10-14T14:46:15.875Z",
+          "updatedAt": "2025-10-14T14:46:17.536Z"
+        },
+        {
+          "id": "AC5418fbfea6fa41d599f8e4671c18cf2b",
+          "to": [
+            "+16177989515"
+          ],
+          "from": "+17866583767",
+          "text": "Hello ",
+          "phoneNumberId": "PNO9Y6twVm",
+          "direction": "incoming",
+          "userId": "USx1BRdT84",
+          "status": "queued",
+          "createdAt": "2025-10-10T20:07:23.165Z",
+          "updatedAt": "2025-10-10T20:07:23.306Z"
+        }
+      ]
+    }
+  ]
+}
