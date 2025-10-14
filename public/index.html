@@ -311,9 +311,11 @@ const translations = {
       connected: 'Conectado',
       disconnected: 'Desconectado',
       send: 'Enviar',
+      sending: 'Enviando…',
       error_loading_conversations: 'Erro ao carregar conversas',
       error_loading_messages: 'Erro ao carregar mensagens',
       error_sending_message: 'Erro ao enviar mensagem',
+      error_translation_failed: 'Falha na tradução. Mensagem não enviada.',
       translate: 'Traduzir',
       translating: 'Traduzindo...',
       show_original: 'Mostrar original'
@@ -337,9 +339,11 @@ const translations = {
       connected: 'Connected',
       disconnected: 'Disconnected',
       send: 'Send',
+      sending: 'Sending…',
       error_loading_conversations: 'Error loading conversations',
       error_loading_messages: 'Error loading messages',
       error_sending_message: 'Error sending message',
+      error_translation_failed: 'Translation failed. Message not sent.',
       translate: 'Translate',
       translating: 'Translating...',
       show_original: 'Show original'
@@ -363,9 +367,11 @@ const translations = {
       connected: 'Conectado',
       disconnected: 'Desconectado',
       send: 'Enviar',
+      sending: 'Enviando…',
       error_loading_conversations: 'Error al cargar conversaciones',
       error_loading_messages: 'Error al cargar mensajes',
       error_sending_message: 'Error al enviar mensaje',
+      error_translation_failed: 'Fallo en la traducción. Mensaje no enviado.',
       translate: 'Traducir',
       translating: 'Traduciendo...',
       show_original: 'Mostrar original'
@@ -389,9 +395,11 @@ const translations = {
       connected: 'Connecté',
       disconnected: 'Déconnecté',
       send: 'Envoyer',
+      sending: 'Envoi…',
       error_loading_conversations: 'Erreur lors du chargement des conversations',
       error_loading_messages: 'Erreur lors du chargement des messages',
       error_sending_message: 'Erreur lors de l\'envoi du message',
+      error_translation_failed: 'Échec de la traduction. Message non envoyé.',
       translate: 'Traduire',
       translating: 'Traduction...',
       show_original: 'Afficher l\'original'
@@ -837,24 +845,59 @@ async function sendMessage() {
   if (!text || !state.active) return;
   
   try {
+    // UI: show sending state
+    const prevLabel = sendBtn.textContent;
     sendBtn.disabled = true;
+    sendBtn.textContent = i18next.t('sending');
     
-    await API.sendMessage({
+    const payloadBase = {
       text,
-      to: state.active.participant,
-      targetLang: state.outLang || undefined
-    });
+      to: state.active.participant
+    };
     
-    messageInput.value = '';
-    sendBtn.classList.remove('enabled');
+    const needsTranslation = !!state.outLang && state.outLang.trim() !== '';
+    const payload = needsTranslation
+      ? { ...payloadBase, targetLang: state.outLang, sourceLang: 'auto', strict: true }
+      : payloadBase;
+
+    let resp = await API.sendMessage(payload);
     
-    // Reload messages to show the sent message
-    await loadMessages();
+    // If translation failed in strict mode, show message and keep composer content
+    if (resp && resp.error === 'Falha na tradução') {
+      alert(i18next.t('error_translation_failed'));
+    } else {
+      // Success: clear input and reload messages
+      messageInput.value = '';
+      sendBtn.classList.remove('enabled');
+      await loadMessages();
+    }
   } catch (error) {
     console.error('Error sending message:', error);
-    alert(i18next.t('error_sending_message'));
+    // Retry once with jitter for transient errors
+    try {
+      const jitter = 200 + Math.floor(Math.random() * 400);
+      await new Promise(r => setTimeout(r, jitter));
+      const payloadBase = { text: messageInput.value.trim(), to: state.active.participant };
+      const needsTranslation = !!state.outLang && state.outLang.trim() !== '';
+      const payload = needsTranslation
+        ? { ...payloadBase, targetLang: state.outLang, sourceLang: 'auto', strict: true }
+        : payloadBase;
+      const resp2 = await API.sendMessage(payload);
+      if (resp2 && resp2.error === 'Falha na tradução') {
+        alert(i18next.t('error_translation_failed'));
+      } else {
+        // Success on retry
+        messageInput.value = '';
+        sendBtn.classList.remove('enabled');
+        await loadMessages();
+      }
+    } catch (err2) {
+      console.error('Final send failure:', err2);
+      alert(i18next.t('error_sending_message'));
+    }
   } finally {
     sendBtn.disabled = false;
+    sendBtn.textContent = i18next.t('send');
   }
 }
 

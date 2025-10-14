@@ -34,7 +34,7 @@ function authHeader() {
 }
 
 // Translation Module
-async function translateText(text, targetLang, sourceLang = 'auto') {
+async function translateText(text, targetLang, sourceLang = 'auto', prompt = '') {
   if (!text || !targetLang) return text;
   
   try {
@@ -43,6 +43,8 @@ async function translateText(text, targetLang, sourceLang = 'auto') {
         return await translateWithDeepL(text, targetLang, sourceLang);
       case 'GOOGLE':
         return await translateWithGoogle(text, targetLang, sourceLang);
+      case 'OPENAI':
+        return await translateWithOpenAI(text, targetLang, prompt);
       case 'LIBRE':
       default:
         return await translateWithLibre(text, targetLang, sourceLang);
@@ -261,7 +263,7 @@ app.get('/api/messages', async (req, res) => {
 // POST /api/messages - Send a message
 app.post('/api/messages', async (req, res) => {
   try {
-    const { text, to, from, targetLang, sourceLang, userId } = req.body;
+    const { text, to, from, targetLang, sourceLang, userId, strict } = req.body;
     
     if (!text || !to) {
       return res.status(400).json({ error: 'text e to são obrigatórios' });
@@ -273,7 +275,19 @@ app.post('/api/messages', async (req, res) => {
     }
     
     // Translate message if target language is specified
-    const translatedText = targetLang ? await translateText(text, targetLang, sourceLang) : text;
+    let translatedText = text;
+    if (targetLang) {
+      if (strict) {
+        try {
+          translatedText = await translateWithOpenAI(text, targetLang, `Traduza para ${targetLang}, preserve sentido e tom, não traduza blocos de código Markdown, responda somente com a tradução.`);
+        } catch (error) {
+          console.error('Strict translation failed:', error);
+          return res.status(500).json({ error: 'Falha na tradução', provider: 'openai', details: error.message });
+        }
+      } else {
+        translatedText = await translateText(text, targetLang, sourceLang, `Traduza para ${targetLang}, preserve sentido e tom, não traduza blocos de código Markdown, responda somente com a tradução.`);
+      }
+    }
     
     const payload = {
       content: translatedText,
@@ -307,14 +321,14 @@ app.post('/api/translate', async (req, res) => {
       return res.status(400).json({ error: 'text e targetLang são obrigatórios' });
     }
     if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OPENAI_API_KEY não configurado' });
+      return res.status(500).json({ error: 'OPENAI_API_KEY não configurado', provider: 'openai' });
     }
 
     const translatedText = await translateWithOpenAI(text, targetLang, prompt);
     res.status(200).json({ translatedText, provider: 'openai', model: 'gpt-4o-mini' });
   } catch (error) {
     console.error('Error translating message:', error);
-    res.status(500).json({ error: 'Falha na tradução', details: error.message });
+    res.status(500).json({ error: 'Falha na tradução', provider: 'openai', details: error.message });
   }
 });
 
