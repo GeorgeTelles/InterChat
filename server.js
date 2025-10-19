@@ -222,6 +222,13 @@ app.get('/api/conversations', async (req, res) => {
         }
       }
       console.log('✅ Finished fetching last messages');
+      // After populating last messages, filter out conversations without any messages
+      if (data && Array.isArray(data.data)) {
+        const beforeCount = data.data.length;
+        data.data = data.data.filter(c => c.lastMessage);
+        const afterCount = data.data.length;
+        console.log(`   🧹 Removed ${beforeCount - afterCount} conversations with no messages`);
+      }
     } else {
       console.log('⚠️ No conversation data found or data is not an array');
     }

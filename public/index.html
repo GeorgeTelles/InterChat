@@ -180,6 +180,42 @@
     .panel{max-height:none}
     .back-btn{display:inline-flex}
   }
+/* New Message button and modal */
+.new-message-btn{
+  width:100%;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--purple);
+  color:#fff;
+  font-weight:600;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+.new-message-btn:hover{box-shadow:0 4px 12px rgba(15,23,42,.08)}
+.new-message-btn:active{transform:scale(.98)}
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,.2);
+  display:flex; align-items:center; justify-content:center;
+  z-index:9999;
+}
+.modal-card{
+  background:#fff; border:1px solid var(--border); border-radius:12px;
+  box-shadow:var(--shadow); width:90%; max-width:360px; padding:16px;
+}
+.modal-actions{display:flex; gap:8px; justify-content:flex-end; margin-top:12px}
+.modal-input{width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font:inherit;}
+.modal-btn{
+  cursor:pointer;
+  border:1px solid var(--border);
+  background:#fff;
+  height:36px; padding:0 12px;
+  border-radius:10px; display:inline-flex;
+  align-items:center; justify-content:center;
+}
+.modal-btn.primary{background:var(--purple); color:#fff; border-color:var(--purple)}
 </style>
 </head>
 <body>
@@ -194,6 +230,8 @@
           <div class="title" style="font-size:18px" data-i18n="conversations">Conversas</div>
         </header>
         <div style="padding:12px 12px 6px">
+          <button id="newMessageBtn" class="new-message-btn" aria-label="Nova Mensagem">Nova Mensagem +</button>
+          <div style="height:8px"></div>
           <div class="search" role="search">
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="#94A3B8" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="#94A3B8" stroke-width="2" stroke-linecap="round"/></svg>
             <input type="text" data-i18n="[placeholder]search_placeholder" placeholder="Buscar..." aria-label="Search"/>
@@ -289,6 +327,19 @@
       </section>
     </div>
   </div>
+
+<!-- New Message Modal -->
+<div id="newMessageModal" class="modal-overlay" style="display:none">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="newMessageTitle">
+    <div class="title" id="newMessageTitle" style="margin-bottom:8px">Nova Mensagem</div>
+    <label class="form-label" for="recipientInput">Número do destinatário</label>
+    <input id="recipientInput" class="modal-input" type="text" placeholder="+15551234567" />
+    <div class="modal-actions">
+      <button id="cancelNewMessage" class="modal-btn">Cancelar</button>
+      <button id="confirmNewMessage" class="modal-btn primary">OK</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ======= i18next Configuration =======
@@ -566,10 +617,10 @@ async function loadConversations() {
       
       console.log(`🔍 After deduplication: ${uniqueConversations.length} conversations`);
 
-      // Discard conversations with more than one participant (groups)
-      const soloConversations = uniqueConversations.filter(c => Array.isArray(c.participants) && c.participants.length === 1);
+      // Discard conversations with more than one participant (groups) and those without messages
+      const soloConversations = uniqueConversations.filter(c => Array.isArray(c.participants) && c.participants.length === 1 && c.lastMessage);
       const discarded = uniqueConversations.length - soloConversations.length;
-      console.log(`🚫 Discarded ${discarded} group conversations (participants.length > 1)`);
+      console.log(`🚫 Discarded ${discarded} items (groups or without messages)`);
       
       // Sort conversations by last activity - newest first, oldest last (top to bottom)
       soloConversations.sort((a, b) => {
@@ -589,8 +640,12 @@ async function loadConversations() {
       }
 
       state.conversations = finalConversations;
-      renderConversations();
-      console.log(`🎯 Rendered ${finalConversations.length} conversations total (solo only)`);
+  // Set our phoneNumberId if unknown, using the first conversation as reference
+  if (!state.phoneNumberId && finalConversations.length > 0) {
+    state.phoneNumberId = finalConversations[0].phoneNumberId || null;
+  }
+  renderConversations();
+  console.log(`🎯 Rendered ${finalConversations.length} conversations total (solo only)`);
     } else {
       list.innerHTML = '<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">Nenhuma conversa encontrada</div>';
     }
@@ -617,15 +672,31 @@ function renderConversations() {
   // Clear the list
   list.innerHTML = '';
   
-  // Double-check for duplicates before rendering
-  const uniqueConversations = state.conversations.filter((conv, index, self) => 
+  // Deduplicate by ID first
+  const byId = state.conversations.filter((conv, index, self) => 
     index === self.findIndex(c => c.id === conv.id)
   );
-  
-  if (uniqueConversations.length !== state.conversations.length) {
-    console.log(`🔧 Removed ${state.conversations.length - uniqueConversations.length} duplicates before rendering`);
-    state.conversations = uniqueConversations;
+  if (byId.length !== state.conversations.length) {
+    console.log(`🔧 Removed ${state.conversations.length - byId.length} duplicates by id before rendering`);
   }
+
+  // Deduplicate by participant number, prefer real conversation (has phoneNumberId or lastMessage)
+  const byNumberMap = new Map();
+  for (const conv of byId) {
+    const key = (Array.isArray(conv.participants) ? conv.participants[0] : conv.phoneNumber) || '';
+    if (!key) continue;
+    const existing = byNumberMap.get(key);
+    const score = (conv.phoneNumberId ? 3 : (conv.lastMessage ? 2 : 1));
+    if (!existing) {
+      byNumberMap.set(key, { conv, score });
+    } else {
+      const existingScore = existing.score;
+      if (score >= existingScore) {
+        byNumberMap.set(key, { conv, score });
+      }
+    }
+  }
+  state.conversations = Array.from(byNumberMap.values()).map(x => x.conv);
   
   state.conversations.forEach(conv => {
     const item = document.createElement('div');
@@ -721,6 +792,13 @@ async function loadMessages() {
   const container = document.getElementById('messagesList');
   container.innerHTML = '<div class="loading">Carregando mensagens...</div>';
   
+  // If this is a new conversation without a known phoneNumberId, show empty history
+  if (!state.active.phoneNumberId) {
+    state.messages = [];
+    renderMessages();
+    return;
+  }
+
   try {
     const response = await API.listMessages(
       state.active.phoneNumberId,
@@ -728,14 +806,27 @@ async function loadMessages() {
     );
     
     // Sort messages by creation date - oldest first, newest last (bottom)
-    const messages = response.data || [];
+    let messages = response.data || [];
     messages.sort((a, b) => {
       const timeA = new Date(a.createdAt);
       const timeB = new Date(b.createdAt);
       return timeA - timeB; // Ascending order - oldest first, newest last
     });
+
+    // Deduplicate by id or by (direction, from/to, text, timestamp)
+    const seenIds = new Set();
+    const seenKeys = new Set();
+    const uniq = [];
+    for (const m of messages) {
+      const id = m.id || '';
+      const key = `${m.direction || ''}|${m.from || ''}|${(m.to||[]).join(',')}|${(m.content||m.text||'').trim()}|${new Date(m.createdAt).getTime()}`;
+      if (id && seenIds.has(id)) continue;
+      if (!id && seenKeys.has(key)) continue;
+      if (id) seenIds.add(id); else seenKeys.add(key);
+      uniq.push(m);
+    }
     
-    state.messages = messages;
+    state.messages = uniq;
     renderMessages();
   } catch (error) {
     console.error('Error loading messages:', error);
@@ -879,10 +970,53 @@ async function sendMessage() {
     if (resp && resp.error === 'Falha na tradução') {
       alert(i18next.t('error_translation_failed'));
     } else {
-      // Success: clear input and reload messages
+      // Success: clear input
       messageInput.value = '';
       sendBtn.classList.remove('enabled');
-      await loadMessages();
+
+      // If this is a new conversation without phoneNumberId, do optimistic update
+      if (!state.active.phoneNumberId) {
+        const optimistic = {
+          id: `local-${Date.now()}`,
+          content: text,
+          text,
+          to: [state.active.participant],
+          direction: 'outgoing',
+          createdAt: new Date().toISOString()
+        };
+        state.messages.push(optimistic);
+        renderMessages();
+
+        // Após envio, aguarde a conversa real aparecer e abra-a
+        setTimeout(async () => {
+          await loadConversations();
+          const existing = state.conversations.find(c => Array.isArray(c.participants) && c.participants.includes(state.active.participant));
+          if (existing) {
+            selectConversation(existing);
+          }
+        }, 1200);
+      } else {
+        // Atualiza preview da conversa na lista imediatamente
+        const previewMsg = {
+          id: `local-${Date.now()}`,
+          content: text,
+          direction: 'outgoing',
+          to: [state.active.participant],
+          createdAt: new Date().toISOString()
+        };
+        const idx = state.conversations.findIndex(c => c.id === state.active.id || (Array.isArray(c.participants) && c.participants.includes(state.active.participant)) );
+        if (idx !== -1) {
+          state.conversations[idx].lastMessage = previewMsg;
+          state.conversations[idx].lastActivityAt = previewMsg.createdAt;
+          state.conversations.sort((a, b) => {
+            const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
+            const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
+            return timeB - timeA;
+          });
+          renderConversations();
+        }
+        await loadMessages();
+      }
     }
   } catch (error) {
     console.error('Error sending message:', error);
@@ -932,12 +1066,16 @@ document.getElementById('outLang').addEventListener('change', (e) => {
 
 // ======= SSE for Real-time Updates =======
 function updateConversationWithNewMessage(message) {
-  // Find the conversation that this message belongs to
-  const participantNumber = message.from === state.phoneNumberId ? message.to[0] : message.from;
+  // Determine participant (remote number) robustly
+  const participantNumber = (Array.isArray(message.participants) && message.participants.length === 1)
+    ? message.participants[0]
+    : (message.direction === 'outgoing' ? (message.to?.[0] || message.participants?.[0]) : message.from);
+
+  if (!participantNumber) return;
   
   // Find existing conversation
   const existingConvIndex = state.conversations.findIndex(conv => 
-    conv.participants?.includes(participantNumber)
+    Array.isArray(conv.participants) && conv.participants.includes(participantNumber)
   );
   
   if (existingConvIndex !== -1) {
@@ -974,12 +1112,31 @@ function startSSE() {
       
       console.log('📨 SSE message received:', message.from, '->', message.to);
       
-      // If message is for active conversation, reload messages
-      if (state.active && 
-          (message.participants?.includes(state.active.participant) || 
-           message.from === state.active.participant)) {
-        console.log('🔄 Reloading messages for active conversation');
-        loadMessages();
+      // If message is for active conversation
+      const isForActive = state.active && (
+        (Array.isArray(message.participants) && message.participants.includes(state.active.participant)) ||
+        (message.direction === 'outgoing' ? (message.to?.[0] === state.active.participant) : (message.from === state.active.participant))
+      );
+
+      if (isForActive) {
+        if (!state.active.phoneNumberId) {
+          // Local conversation (no history yet): replace optimistic with real
+          // Replace the most recent local outgoing message for this recipient
+          const lastIdx = [...state.messages].reverse().findIndex(m => m.id?.startsWith('local-') && m.direction === 'outgoing' && (m.to?.[0] === state.active.participant));
+          if (lastIdx !== -1) {
+            const idx = state.messages.length - 1 - lastIdx;
+            state.messages[idx] = message;
+          } else {
+            state.messages.push(message);
+          }
+          renderMessages();
+
+          // Also update conversation preview
+          updateConversationWithNewMessage(message);
+        } else {
+          console.log('🔄 Reloading messages for active conversation');
+          loadMessages();
+        }
       } else {
         // Instead of reloading all conversations, just update the specific conversation
         console.log('📝 Updating conversation list for new message');
@@ -1031,6 +1188,65 @@ async function init() {
   // Start SSE
   startSSE();
 }
+
+// New Message modal and creation
+const newMessageBtn = document.getElementById('newMessageBtn');
+const newMessageModal = document.getElementById('newMessageModal');
+const recipientInput = document.getElementById('recipientInput');
+const cancelNewMessage = document.getElementById('cancelNewMessage');
+const confirmNewMessage = document.getElementById('confirmNewMessage');
+
+function openNewMessageModal() {
+  newMessageModal.style.display = 'flex';
+  recipientInput.value = '';
+  recipientInput.focus();
+}
+function closeNewMessageModal() {
+  newMessageModal.style.display = 'none';
+}
+if (newMessageBtn) newMessageBtn.addEventListener('click', openNewMessageModal);
+if (cancelNewMessage) cancelNewMessage.addEventListener('click', closeNewMessageModal);
+
+function createEmptyConversation(number) {
+  const id = `temp-${Date.now()}-${number}`;
+  const conv = {
+    id,
+    participants: [number],
+    phoneNumber: number,
+    phoneNumberId: null,
+    lastMessage: null,
+    updatedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString()
+  };
+  // Não adicionar na lista; apenas abrir a tela temporária de chat
+  selectConversation(conv);
+  state.messages = [];
+  renderMessages();
+}
+
+if (confirmNewMessage) confirmNewMessage.addEventListener('click', () => {
+    const raw = recipientInput.value.trim();
+    if (!raw) { recipientInput.focus(); return; }
+    let number = raw.replace(/\s+/g, '');
+    if (!number.startsWith('+')) {
+      number = '+' + number.replace(/[^\d]/g, '');
+    }
+    const existing = state.conversations.find(c => Array.isArray(c.participants) && c.participants.includes(number));
+    if (existing) {
+      selectConversation(existing);
+      closeNewMessageModal();
+      loadMessages();
+      return;
+    }
+    createEmptyConversation(number);
+    closeNewMessageModal();
+  });
+
+newMessageModal?.addEventListener('click', (e) => {
+  if (e.target === newMessageModal) {
+    closeNewMessageModal();
+  }
+});
 
 // Start the application
 init();
