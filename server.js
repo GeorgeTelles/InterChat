@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -13,6 +14,8 @@ const OPENPHONE_API = process.env.OPENPHONE_API || 'https://api.openphone.com/v1
 const OPENPHONE_API_KEY = process.env.OPENPHONE_API_KEY;
 const OPENPHONE_FROM = process.env.OPENPHONE_FROM;
 const OPENPHONE_USER_ID = process.env.OPENPHONE_USER_ID;
+const OPENPHONE_WEBHOOK_SECRET = process.env.OPENPHONE_WEBHOOK_SECRET;
+const OPENPHONE_WEBHOOK_URL = process.env.OPENPHONE_WEBHOOK_URL;
 
 // Translation Configuration
 const TRANSLATE_PROVIDER = process.env.TRANSLATE_PROVIDER || 'LIBRE';
@@ -25,12 +28,94 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // Middleware
 app.use(cors({ origin: ORIGIN, credentials: true }));
-app.use(bodyParser.json());
+app.use(bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper Functions
 function authHeader() {
   return { Authorization: OPENPHONE_API_KEY };
+}
+
+// Verificação de assinatura de webhook OpenPhone (HMAC-SHA256)
+function verifyWebhookSignature(req) {
+  try {
+    const header = req.headers['openphone-signature'];
+    if (!OPENPHONE_WEBHOOK_SECRET) {
+      return { ok: false, reason: 'missing_secret' };
+    }
+    if (!header) {
+      return { ok: false, reason: 'missing_header' };
+    }
+    const parts = String(header).split(';');
+    if (parts.length < 4 || parts[0] !== 'hmac') {
+      return { ok: false, reason: 'invalid_scheme' };
+    }
+    const timestamp = parts[2];
+    const signature = parts[3]?.trim();
+
+    // Preferir corpo bruto; fallback para JSON stringificado
+    let raw = req.rawBody;
+    if (!raw) {
+      try {
+        raw = Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}));
+      } catch {
+        raw = Buffer.from('');
+      }
+    }
+
+    const rawStr = raw.toString('utf8');
+
+    // Calcular HMAC em ambos formatos (hex e base64), com e sem timestamp
+    const digestHex = crypto.createHmac('sha256', OPENPHONE_WEBHOOK_SECRET).update(raw).digest('hex');
+    const digestBase64 = crypto.createHmac('sha256', OPENPHONE_WEBHOOK_SECRET).update(raw).digest('base64');
+    const digestHexTs = crypto.createHmac('sha256', OPENPHONE_WEBHOOK_SECRET).update(`${timestamp}.${rawStr}`).digest('hex');
+    const digestBase64Ts = crypto.createHmac('sha256', OPENPHONE_WEBHOOK_SECRET).update(`${timestamp}.${rawStr}`).digest('base64');
+
+    const ok = [digestHex, digestBase64, digestHexTs, digestBase64Ts].includes(signature);
+
+    return { ok, timestamp, signature, digest1: digestHex, digest2: digestHexTs };
+  } catch (err) {
+    return { ok: false, reason: 'error', error: err?.message };
+  }
+}
+
+// Normalização de payloads de mensagem do OpenPhone
+function normalizeMessageEvent(event) {
+  if (!event) return null;
+  const type = event.type || event.event?.type || event?.detail?.type || '';
+  
+  // OpenPhone v4 API: dados estão em event.data.object
+  const m = event?.data?.object || event?.data?.message || event?.message || event?.data || event?.payload?.message || event?.payload || event;
+  
+  if (!m) return null;
+
+  // Extrair campos de IDs e conteúdo de forma robusta
+  const id = m.id || m.messageId || event.messageId || event.id;
+  const content = m.text || m.content || m.body || m.message || '';
+
+  // Extrair números de forma robusta (string ou objeto)
+  const from = typeof m.from === 'string' ? m.from : (m.from?.phoneNumber || m.from?.number || m.from?.id);
+  let to = [];
+  if (Array.isArray(m.to)) {
+    to = m.to.map(t => (typeof t === 'string' ? t : (t?.phoneNumber || t?.number || t?.id))).filter(Boolean);
+  } else if (m.to) {
+    to = [typeof m.to === 'string' ? m.to : (m.to?.phoneNumber || m.to?.number || m.to?.id)].filter(Boolean);
+  }
+
+  // Participantes (remoto) e direção
+  let direction = m.direction || (to.length ? 'outgoing' : 'incoming');
+  let participants = Array.isArray(m.participants) ? m.participants : (m.participants ? [m.participants] : []);
+  if (!participants.length) {
+    if (direction === 'incoming' && from) participants = [from];
+    if (direction === 'outgoing' && to.length) participants = [to[0]];
+  }
+
+  const createdAt = m.createdAt || m.created_at || event.createdAt || new Date().toISOString();
+  const phoneNumberId = m.phoneNumberId || m.phone_number_id || m.phoneNumberId;
+  const status = m.status || (type === 'message.delivered' ? 'delivered' : undefined);
+
+  const message = { id, direction, content, from, to, participants, createdAt, phoneNumberId, status };
+  return { type, data: message };
 }
 
 // Translation Module
@@ -379,17 +464,34 @@ function broadcast(type, payload) {
 // Webhook for OpenPhone events
 app.post('/webhooks/openphone', async (req, res) => {
   try {
+    // Verificar assinatura (não bloquear caso falhe)
+    const verification = verifyWebhookSignature(req);
+    if (!verification.ok) {
+      console.warn('🔐 Assinatura de webhook inválida ou ausente:', verification);
+    }
+
     const event = req.body;
     
-    // Validate webhook signature in production
-    if (event?.type?.includes('message')) {
-      broadcast('openphone', event);
-    }
+    // Log completo do payload para debug
+    console.log('🔍 PAYLOAD COMPLETO:', JSON.stringify(event, null, 2));
     
+    const normalized = normalizeMessageEvent(event);
+    console.log('🔄 NORMALIZADO:', JSON.stringify(normalized, null, 2));
+
+    // Difundir somente eventos de mensagem
+    if (normalized?.type?.includes('message')) {
+      // Logs estruturados
+      console.log('📬 Evento:', { type: normalized.type, id: normalized?.data?.id, to: normalized?.data?.to, from: normalized?.data?.from });
+      broadcast('openphone', normalized);
+    } else {
+      console.log('⚠️ Evento não é de mensagem ou não foi normalizado:', normalized?.type || 'tipo indefinido');
+    }
+
+    // Responder 2xx rapidamente
     res.status(200).json({ ok: true });
   } catch (error) {
     console.error('Webhook error:', error);
-    res.status(500).json({ ok: false });
+    res.status(200).json({ ok: false });
   }
 });
 
@@ -416,4 +518,41 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!OPENPHONE_FROM) {
     console.warn('⚠️  OPENPHONE_FROM not configured');
   }
+  // Tentar registrar webhooks automaticamente, se configurado
+  ensureOpenPhoneWebhooks();
 });
+
+// Registro automático opcional de webhooks de mensagens
+async function ensureOpenPhoneWebhooks() {
+  try {
+    if (!OPENPHONE_WEBHOOK_URL) {
+      console.log('ℹ️ OPENPHONE_WEBHOOK_URL não definido; pulando criação automática de webhooks.');
+      return;
+    }
+    console.log('🔧 Verificando webhooks existentes no OpenPhone...');
+    const listResp = await fetch(`${OPENPHONE_API}/webhooks`, { headers: authHeader() });
+    const list = await listResp.json().catch(() => ({}));
+    const exists = Array.isArray(list?.data) && list.data.some(w => w.url === OPENPHONE_WEBHOOK_URL);
+    if (exists) {
+      console.log('✅ Webhook já existe:', OPENPHONE_WEBHOOK_URL);
+      return;
+    }
+    console.log('🪝 Criando webhook de mensagens:', OPENPHONE_WEBHOOK_URL);
+    const createResp = await fetch(`${OPENPHONE_API}/webhooks/messages`, {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        events: ['message.received', 'message.delivered'],
+        url: OPENPHONE_WEBHOOK_URL
+      })
+    });
+    const created = await createResp.json().catch(() => ({}));
+    if (!createResp.ok) {
+      console.warn('⚠️ Falha ao criar webhook:', createResp.status, created);
+    } else {
+      console.log('🎉 Webhook criado com sucesso:', created?.id || created);
+    }
+  } catch (err) {
+    console.warn('⚠️ Erro ao garantir webhooks:', err?.message);
+  }
+}

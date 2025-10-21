@@ -369,7 +369,10 @@ const translations = {
       error_translation_failed: 'Falha na tradução. Mensagem não enviada.',
       translate: 'Traduzir',
       translating: 'Traduzindo...',
-      show_original: 'Mostrar original'
+      show_original: 'Mostrar original',
+      pending: 'Pendente',
+      delivered: 'Entregue',
+      failed: 'Falhou'
     }
   },
   en: {
@@ -397,7 +400,10 @@ const translations = {
       error_translation_failed: 'Translation failed. Message not sent.',
       translate: 'Translate',
       translating: 'Translating...',
-      show_original: 'Show original'
+      show_original: 'Show original',
+      pending: 'Pending',
+      delivered: 'Delivered',
+      failed: 'Failed'
     }
   },
   es: {
@@ -425,7 +431,10 @@ const translations = {
       error_translation_failed: 'Fallo en la traducción. Mensaje no enviado.',
       translate: 'Traducir',
       translating: 'Traduciendo...',
-      show_original: 'Mostrar original'
+      show_original: 'Mostrar original',
+      pending: 'Pendiente',
+      delivered: 'Entregado',
+      failed: 'Fallido'
     }
   },
   fr: {
@@ -453,7 +462,10 @@ const translations = {
       error_translation_failed: 'Échec de la traduction. Message non envoyé.',
       translate: 'Traduire',
       translating: 'Traduction...',
-      show_original: 'Afficher l\'original'
+      show_original: 'Afficher l\'original',
+      pending: 'En attente',
+      delivered: 'Livré',
+      failed: 'Échec'
     }
   }
 };
@@ -853,7 +865,17 @@ function renderMessages() {
     // Add individual timestamp for each message
     const timestamp = document.createElement('div');
     timestamp.className = 'timestamp';
-    timestamp.textContent = formatTime(message.createdAt);
+    const timeText = formatTime(message.createdAt);
+    if (isFromMe) {
+      const st = message.status;
+      if (st === 'pending' || st === 'delivered' || st === 'failed') {
+        timestamp.textContent = `${timeText} • ${i18next.t(st)}`;
+      } else {
+        timestamp.textContent = timeText;
+      }
+    } else {
+      timestamp.textContent = timeText;
+    }
     
     messageWrapper.appendChild(bubble);
 
@@ -982,7 +1004,8 @@ async function sendMessage() {
           text,
           to: [state.active.participant],
           direction: 'outgoing',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          status: 'pending'
         };
         state.messages.push(optimistic);
         renderMessages();
@@ -1002,7 +1025,8 @@ async function sendMessage() {
           content: text,
           direction: 'outgoing',
           to: [state.active.participant],
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          status: 'pending'
         };
         const idx = state.conversations.findIndex(c => c.id === state.active.id || (Array.isArray(c.participants) && c.participants.includes(state.active.participant)) );
         if (idx !== -1) {
@@ -1015,7 +1039,9 @@ async function sendMessage() {
           });
           renderConversations();
         }
-        await loadMessages();
+        // UI otimista: insere a mensagem local na janela atual sem novo fetch
+        state.messages.push(previewMsg);
+        renderMessages();
       }
     }
   } catch (error) {
@@ -1036,10 +1062,31 @@ async function sendMessage() {
         // Success on retry
         messageInput.value = '';
         sendBtn.classList.remove('enabled');
-        await loadMessages();
+        // Mantém UI otimista; SSE cuidará do estado final
       }
     } catch (err2) {
       console.error('Final send failure:', err2);
+      // Mark last optimistic outgoing message as failed and rerender
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const m = state.messages[i];
+        const toMatch = Array.isArray(m.to) ? m.to[0] : m.to;
+        const isFromMe = m.direction === 'outgoing' || (m.from && m.from === state.phoneNumberId);
+        if (isFromMe && toMatch === state.active.participant && (m.status === 'pending' || (m.id && m.id.startsWith('local-')))) {
+          m.status = 'failed';
+          break;
+        }
+      }
+      renderMessages();
+      const idx = state.conversations.findIndex(c => c.id === (state.active?.id) || (Array.isArray(c.participants) && c.participants.includes(state.active?.participant)));
+      if (idx !== -1) {
+        const lm = state.conversations[idx].lastMessage;
+        const lmTo = Array.isArray(lm?.to) ? lm.to[0] : lm?.to;
+        const lmFromMe = lm && (lm.direction === 'outgoing' || (lm.from && lm.from === state.phoneNumberId));
+        if (lm && lmFromMe && lmTo === state.active.participant && lm.status === 'pending') {
+          state.conversations[idx].lastMessage = { ...lm, status: 'failed' };
+          renderConversations();
+        }
+      }
       alert(i18next.t('error_sending_message'));
     }
   } finally {
@@ -1067,11 +1114,21 @@ document.getElementById('outLang').addEventListener('change', (e) => {
 // ======= SSE for Real-time Updates =======
 function updateConversationWithNewMessage(message) {
   // Determine participant (remote number) robustly
-  const participantNumber = (Array.isArray(message.participants) && message.participants.length === 1)
+  let participantNumber = (Array.isArray(message.participants) && message.participants.length === 1)
     ? message.participants[0]
     : (message.direction === 'outgoing' ? (message.to?.[0] || message.participants?.[0]) : message.from);
 
-  if (!participantNumber) return;
+  // Se ainda não temos número, tentar inferir pela conversa ativa
+  if (!participantNumber && state.active?.participant) {
+    participantNumber = state.active.participant;
+  }
+
+  // Se não conseguimos determinar, recarregar lista de conversas e sair
+  if (!participantNumber) {
+    console.log('ℹ️ Missing participantNumber in event; reloading conversations');
+    loadConversations();
+    return;
+  }
   
   // Find existing conversation
   const existingConvIndex = state.conversations.findIndex(conv => 
@@ -1105,41 +1162,63 @@ function startSSE() {
     const eventSource = new EventSource('/api/sse');
     
     eventSource.addEventListener('openphone', (event) => {
-      const data = JSON.parse(event.data || '{}');
-      const message = data?.data || data;
+      const payload = JSON.parse(event.data || '{}');
+      const type = payload?.type || payload?.event?.type || '';
+      const message = payload?.data || payload;
       
       if (!message) return;
       
       console.log('📨 SSE message received:', message.from, '->', message.to);
       
-      // If message is for active conversation
-      const isForActive = state.active && (
+      let isForActive = !!state.active && (
         (Array.isArray(message.participants) && message.participants.includes(state.active.participant)) ||
         (message.direction === 'outgoing' ? (message.to?.[0] === state.active.participant) : (message.from === state.active.participant))
       );
+      if (!isForActive && state.active && (type === 'message.delivered' || type === 'message.received')) {
+        // Fallback: alguns webhooks vêm sem routing fields; assumir conversa ativa para atualizar preview/bubble
+        isForActive = true;
+      }
 
       if (isForActive) {
         if (!state.active.phoneNumberId) {
-          // Local conversation (no history yet): replace optimistic with real
-          // Replace the most recent local outgoing message for this recipient
-          const lastIdx = [...state.messages].reverse().findIndex(m => m.id?.startsWith('local-') && m.direction === 'outgoing' && (m.to?.[0] === state.active.participant));
+          const lastIdx = [...state.messages].reverse().findIndex(m => m.id?.startsWith('local-') && m.direction === 'outgoing');
           if (lastIdx !== -1) {
             const idx = state.messages.length - 1 - lastIdx;
-            state.messages[idx] = message;
-          } else {
-            state.messages.push(message);
+            const orig = state.messages[idx];
+            state.messages[idx] = { ...orig, id: message.id || orig.id, status: 'delivered' };
+          } else if (message && (message.content || message.text)) {
+            state.messages.push({ ...message, status: 'delivered' });
           }
           renderMessages();
-
-          // Also update conversation preview
           updateConversationWithNewMessage(message);
         } else {
-          console.log('🔄 Reloading messages for active conversation');
-          loadMessages();
+          if (type === 'message.delivered') {
+            const lastPendingIdx = [...state.messages].reverse().findIndex(m =>
+              (m.id?.startsWith('local-') || m.status === 'pending') && m.direction === 'outgoing'
+            );
+            if (lastPendingIdx !== -1) {
+              const idx = state.messages.length - 1 - lastPendingIdx;
+              const orig = state.messages[idx];
+              state.messages[idx] = { ...orig, id: message.id || orig.id, status: 'delivered' };
+            } else if (message && (message.content || message.text)) {
+              state.messages.push({ ...message, status: 'delivered' });
+            }
+          } else {
+            // Mensagens recebidas: se faltar id, ainda assim exibir para conversa ativa
+            const hasId = !!message.id;
+            const already = hasId && state.messages.some(m => m.id && m.id === message.id);
+            if (!already) {
+              // Se não há campos de roteamento, associar à conversa ativa
+              if (!message.from && state.active?.participant) {
+                message = { ...message, from: state.active.participant, direction: 'incoming' };
+              }
+              state.messages.push(message);
+            }
+          }
+          renderMessages();
+          updateConversationWithNewMessage(message);
         }
       } else {
-        // Instead of reloading all conversations, just update the specific conversation
-        console.log('📝 Updating conversation list for new message');
         updateConversationWithNewMessage(message);
       }
     });
