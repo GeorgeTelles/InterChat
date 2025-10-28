@@ -1,0 +1,30 @@
+# Use Node.js 18 Alpine for production
+FROM node:18-alpine
+
+# Install curl for healthcheck
+RUN apk add --no-cache curl
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# Copy production environment file
+COPY .env.production .env
+
+# Expose port
+EXPOSE 3000
+
+# Health check using curl with IPv4
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://127.0.0.1:3000/healthz || exit 1
+
+# Start the application
+CMD ["npm", "start"]
