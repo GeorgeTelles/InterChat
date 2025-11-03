@@ -585,11 +585,19 @@ async function loadConversations() {
   window.isLoadingConversations = true;
   
   const list = document.getElementById('conversationsList');
-  const loading = document.getElementById('conversationsLoading');
+  let loading = document.getElementById('conversationsLoading');
+  // Ensure loading indicator exists even after list re-render clears innerHTML
+  if (list && !loading) {
+    loading = document.createElement('div');
+    loading.className = 'loading';
+    loading.id = 'conversationsLoading';
+    loading.innerHTML = '<div data-i18n="loading">Carregando...</div>';
+    list.prepend(loading);
+  }
   
   try {
     console.log('🔄 Loading conversations...');
-    loading.style.display = 'block';
+    if (loading) loading.style.display = 'block';
     
     // Load conversations using pagination (fetch multiple pages, then filter/sort/limit)
     let allConversations = [];
@@ -671,9 +679,11 @@ async function loadConversations() {
     }
   } catch (error) {
     console.error('Error loading conversations:', error);
-    list.innerHTML = `<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('error_loading_conversations')}</div>`;
+    if (list) {
+      list.innerHTML = `<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('error_loading_conversations')}</div>`;
+    }
   } finally {
-    loading.style.display = 'none';
+    if (loading) loading.style.display = 'none';
     window.isLoadingConversations = false;
   }
 }
