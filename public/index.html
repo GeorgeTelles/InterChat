@@ -1211,6 +1211,11 @@ function startSSE() {
     }
 
     sse = new EventSource('/api/sse');
+    // Marca conexão como pronta ao receber o evento inicial do servidor
+    sse.addEventListener('ready', () => {
+      sseRetry = 0;
+      updateConnectionStatus('connected');
+    });
     
     sse.addEventListener('openphone', (event) => {
       const payload = JSON.parse(event.data || '{}');
@@ -1320,12 +1325,12 @@ async function init() {
   // Apply translations
   applyI18n();
   
-  // Load conversations
-  await loadConversations();
-  
-  // Start SSE
+  // Start SSE connection first
   startSSE();
 
+  // Load conversations after starting SSE
+  await loadConversations();
+  
   // Setup search after initial render
   setupSearch();
 }

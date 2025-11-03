@@ -454,6 +454,11 @@ app.get('/api/sse', (req, res) => {
   
   // Envia um comentário inicial para forçar proxies/navegadores a liberar o stream
   res.write(':ok\n\n');
+  // Envia um evento inicial para que o front possa marcar como conectado
+  try {
+    res.write('event: ready\n');
+    res.write('data: ok\n\n');
+  } catch (_) {}
   // Opcional: enviar um pequeno evento de hello (descomente se quiser)
   // res.write('event: hello\n');
   // res.write('data: connected\n\n');
