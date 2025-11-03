@@ -484,7 +484,9 @@ const state = {
   messages: [],
   uiLang: localStorage.getItem('uiLang') || 'pt',
   outLang: localStorage.getItem('outLang') || '',
-  phoneNumberId: null
+  phoneNumberId: null,
+  allConversations: [],
+  searchQuery: ''
 };
 
 // ======= API Module =======
@@ -651,13 +653,19 @@ async function loadConversations() {
         console.log(`📦 Limited to ${TOTAL_LIMIT} most recent solo conversations`);
       }
 
-      state.conversations = finalConversations;
-  // Set our phoneNumberId if unknown, using the first conversation as reference
-  if (!state.phoneNumberId && finalConversations.length > 0) {
-    state.phoneNumberId = finalConversations[0].phoneNumberId || null;
-  }
-  renderConversations();
-  console.log(`🎯 Rendered ${finalConversations.length} conversations total (solo only)`);
+      state.allConversations = finalConversations;
+      // Set our phoneNumberId if unknown, using the first conversation as reference
+      if (!state.phoneNumberId && finalConversations.length > 0) {
+        state.phoneNumberId = finalConversations[0].phoneNumberId || null;
+      }
+      // Apply current search filter if any, else render all
+      if (state.searchQuery && state.searchQuery.trim() !== '') {
+        filterConversations(state.searchQuery);
+      } else {
+        state.conversations = state.allConversations;
+        renderConversations();
+      }
+      console.log(`🎯 Loaded ${finalConversations.length} conversations total (solo only)`);
     } else {
       list.innerHTML = '<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">Nenhuma conversa encontrada</div>';
     }
@@ -757,6 +765,40 @@ function renderConversations() {
   
   // Release rendering flag
   window.isRendering = false;
+}
+
+// ======= Conversations Search =======
+function filterConversations(query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) {
+    state.conversations = state.allConversations;
+    renderConversations();
+    return;
+  }
+  const qDigits = q.replace(/\D/g, '');
+  state.conversations = state.allConversations.filter(conv => {
+    const number = (Array.isArray(conv.participants) ? conv.participants[0] : conv.phoneNumber) || '';
+    const name = conv.participantContacts?.[0]?.displayName || '';
+    const subtitle = conv.participantContacts?.[0]?.company || '';
+    const lastMessage = conv.lastMessage || {};
+    const msg = lastMessage.content || lastMessage.text || lastMessage.body || '';
+    const normalizedNumber = number.replace(/\D/g, '');
+    const matchDigits = qDigits ? normalizedNumber.includes(qDigits) : false;
+    const matchText = name.toLowerCase().includes(q) || number.toLowerCase().includes(q) || subtitle.toLowerCase().includes(q) || msg.toLowerCase().includes(q);
+    return matchDigits || matchText;
+  });
+  renderConversations();
+}
+
+function setupSearch() {
+  const input = document.querySelector('.search input');
+  if (!input) return;
+  let timer = null;
+  input.addEventListener('input', (e) => {
+    state.searchQuery = e.target.value || '';
+    clearTimeout(timer);
+    timer = setTimeout(() => filterConversations(state.searchQuery), 150);
+  });
 }
 
 function selectConversation(conv) {
@@ -1157,7 +1199,6 @@ function updateConversationWithNewMessage(message) {
   }
 }
 
-<script>
 // SSE connection state
 let sse;
 let sseRetry = 0;
@@ -1254,7 +1295,6 @@ function startSSE() {
     setTimeout(startSSE, delay);
   }
 }
-</script>
 
 function updateConnectionStatus(status) {
   const statusEl = document.getElementById('connectionStatus');
@@ -1285,6 +1325,9 @@ async function init() {
   
   // Start SSE
   startSSE();
+
+  // Setup search after initial render
+  setupSearch();
 }
 
 // New Message modal and creation
