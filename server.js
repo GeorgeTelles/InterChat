@@ -438,16 +438,42 @@ const sseClients = new Set();
 
 app.get('/api/sse', (req, res) => {
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
+    'Keep-Alive': 'timeout=600, max=1000',
+    'X-Accel-Buffering': 'no',
     'Access-Control-Allow-Origin': ORIGIN,
+    'Access-Control-Allow-Credentials': 'true',
+    'Vary': 'Origin',
   });
   
-  res.write('\n');
-  sseClients.add(res);
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
   
-  req.on('close', () => sseClients.delete(res));
+  // Envia um comentário inicial para forçar proxies/navegadores a liberar o stream
+  res.write(':ok\n\n');
+  // Opcional: enviar um pequeno evento de hello (descomente se quiser)
+  // res.write('event: hello\n');
+  // res.write('data: connected\n\n');
+
+  sseClients.add(res);
+
+  // Heartbeat periódico para manter a conexão viva através de proxies/CDNs
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(':keepalive\n\n');
+    } catch (_) {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+    }
+  }, 25000);
+  
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.delete(res);
+  });
 });
 
 function broadcast(type, payload) {

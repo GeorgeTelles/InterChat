@@ -1157,11 +1157,21 @@ function updateConversationWithNewMessage(message) {
   }
 }
 
+<script>
+// SSE connection state
+let sse;
+let sseRetry = 0;
+
 function startSSE() {
   try {
-    const eventSource = new EventSource('/api/sse');
+    // Close previous connection if any
+    if (sse) {
+      try { sse.close(); } catch (_) {}
+    }
+
+    sse = new EventSource('/api/sse');
     
-    eventSource.addEventListener('openphone', (event) => {
+    sse.addEventListener('openphone', (event) => {
       const payload = JSON.parse(event.data || '{}');
       const type = payload?.type || payload?.event?.type || '';
       const message = payload?.data || payload;
@@ -1223,19 +1233,28 @@ function startSSE() {
       }
     });
     
-    eventSource.addEventListener('open', () => {
+    sse.addEventListener('open', () => {
+      sseRetry = 0;
       updateConnectionStatus('connected');
     });
     
-    eventSource.addEventListener('error', () => {
+    sse.addEventListener('error', () => {
       updateConnectionStatus('disconnected');
+      try { sse.close(); } catch (_) {}
+      const delay = Math.min(30000, 1000 * Math.pow(2, sseRetry || 0));
+      sseRetry = (sseRetry || 0) + 1;
+      setTimeout(startSSE, delay);
     });
     
   } catch (error) {
     console.warn('SSE not available:', error);
     updateConnectionStatus('disconnected');
+    const delay = Math.min(30000, 1000 * Math.pow(2, sseRetry || 0));
+    sseRetry = (sseRetry || 0) + 1;
+    setTimeout(startSSE, delay);
   }
 }
+</script>
 
 function updateConnectionStatus(status) {
   const statusEl = document.getElementById('connectionStatus');
