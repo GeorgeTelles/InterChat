@@ -480,13 +480,11 @@ i18next.init({
 // ======= State Management =======
 const state = {
   conversations: [],
-  allConversations: [],
   active: null,
   messages: [],
   uiLang: localStorage.getItem('uiLang') || 'pt',
   outLang: localStorage.getItem('outLang') || '',
-  phoneNumberId: null,
-  searchQuery: ''
+  phoneNumberId: null
 };
 
 // ======= API Module =======
@@ -654,7 +652,6 @@ async function loadConversations() {
       }
 
       state.conversations = finalConversations;
-      state.allConversations = [...finalConversations]; // Use a copy to prevent reference issues
   // Set our phoneNumberId if unknown, using the first conversation as reference
   if (!state.phoneNumberId && finalConversations.length > 0) {
     state.phoneNumberId = finalConversations[0].phoneNumberId || null;
@@ -1138,30 +1135,13 @@ function updateConversationWithNewMessage(message) {
     Array.isArray(conv.participants) && conv.participants.includes(participantNumber)
   );
   
-  // Also find in allConversations for search consistency
-  const existingAllConvIndex = state.allConversations.findIndex(conv => 
-    Array.isArray(conv.participants) && conv.participants.includes(participantNumber)
-  );
-  
   if (existingConvIndex !== -1) {
-    // Update existing conversation in both arrays
+    // Update existing conversation
     state.conversations[existingConvIndex].lastMessage = message;
     state.conversations[existingConvIndex].lastActivityAt = message.createdAt;
     
-    if (existingAllConvIndex !== -1) {
-      state.allConversations[existingAllConvIndex].lastMessage = message;
-      state.allConversations[existingAllConvIndex].lastActivityAt = message.createdAt;
-    }
-    
     // Re-sort conversations by last activity
     state.conversations.sort((a, b) => {
-      const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
-      const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
-      return timeB - timeA; // Descending order - newest first
-    });
-    
-    // Re-sort allConversations as well
-    state.allConversations.sort((a, b) => {
       const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
       const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
       return timeB - timeA; // Descending order - newest first
@@ -1284,45 +1264,8 @@ async function init() {
   // Load conversations
   await loadConversations();
   
-  // Setup search functionality
-  setupSearch();
-  
   // Start SSE
   startSSE();
-}
-
-// ======= Conversations Search =======
-function filterConversations(query) {
-  const q = (query || '').trim().toLowerCase();
-  if (!q) {
-    state.conversations = [...state.allConversations]; // Use a copy
-    renderConversations();
-    return;
-  }
-  const qDigits = q.replace(/\D/g, '');
-  state.conversations = state.allConversations.filter(conv => {
-    const number = (Array.isArray(conv.participants) ? conv.participants[0] : conv.phoneNumber) || '';
-    const name = conv.participantContacts?.[0]?.displayName || '';
-    const subtitle = conv.participantContacts?.[0]?.company || '';
-    const lastMessage = conv.lastMessage || {};
-    const msg = lastMessage.content || lastMessage.text || lastMessage.body || '';
-    const normalizedNumber = number.replace(/\D/g, '');
-    const matchDigits = qDigits ? normalizedNumber.includes(qDigits) : false;
-    const matchText = name.toLowerCase().includes(q) || number.toLowerCase().includes(q) || subtitle.toLowerCase().includes(q) || msg.toLowerCase().includes(q);
-    return matchDigits || matchText;
-  });
-  renderConversations();
-}
-
-function setupSearch() {
-  const input = document.querySelector('.search input');
-  if (!input) return;
-  let timer = null;
-  input.addEventListener('input', (e) => {
-    state.searchQuery = e.target.value || '';
-    clearTimeout(timer);
-    timer = setTimeout(() => filterConversations(state.searchQuery), 150);
-  });
 }
 
 // New Message modal and creation
