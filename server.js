@@ -1,8 +1,10 @@
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const crypto = require('crypto');
+const WebSocket = require('ws');
 require('dotenv').config();
 
 const app = express();
@@ -30,6 +32,42 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 app.use(cors({ origin: ORIGIN, credentials: true }));
 app.use(bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// HTTP server (needed to attach WebSocket server)
+const httpServer = http.createServer(app);
+
+// WebSocket server at /ws
+const wss = new WebSocket.Server({ server: httpServer, path: '/ws' });
+const wsClients = new Set();
+
+wss.on('connection', (socket) => {
+  wsClients.add(socket);
+  console.log(`🔌 WS client connected. Total: ${wsClients.size}`);
+
+  socket.on('close', () => {
+    wsClients.delete(socket);
+    console.log(`🔌 WS client disconnected. Total: ${wsClients.size}`);
+  });
+
+  socket.on('error', (err) => {
+    console.warn('⚠️ WS client error:', err?.message);
+    try { socket.close(); } catch {}
+    wsClients.delete(socket);
+  });
+});
+
+function wsBroadcast(type, payload) {
+  const msg = JSON.stringify({ type, payload });
+  for (const client of wsClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(msg);
+      } catch (error) {
+        wsClients.delete(client);
+      }
+    }
+  }
+}
 
 // Helper Functions
 function authHeader() {
@@ -481,55 +519,7 @@ app.post('/api/translate', async (req, res) => {
   }
 });
 
-// SSE for real-time updates
-const sseClients = new Set();
-const sseHeartbeats = new Map();
-
-app.get('/api/sse', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': ORIGIN,
-  });
-
-  // Hint client reconnection interval
-  res.write('retry: 3000\n\n');
-  // Initial ping to confirm open
-  res.write(`event: ping\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
-
-  sseClients.add(res);
-  console.log(`🔌 SSE client connected. Total: ${sseClients.size}`);
-
-  // Heartbeat every 25s to keep connection alive through proxies
-  const interval = setInterval(() => {
-    try {
-      res.write(`event: ping\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
-    } catch (err) {
-      console.warn('⚠️ SSE heartbeat write failed:', err?.message);
-    }
-  }, 25000);
-  sseHeartbeats.set(res, interval);
-
-  req.on('close', () => {
-    sseClients.delete(res);
-    const hb = sseHeartbeats.get(res);
-    if (hb) clearInterval(hb);
-    sseHeartbeats.delete(res);
-    console.log(`🔌 SSE client disconnected. Total: ${sseClients.size}`);
-  });
-});
-
-function broadcast(type, payload) {
-  const data = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
-  for (const client of sseClients) {
-    try {
-      client.write(data);
-    } catch (error) {
-      sseClients.delete(client);
-    }
-  }
-}
+// Removed SSE in favor of WebSocket
 
 // Webhook for OpenPhone events
 app.post('/webhooks/openphone', async (req, res) => {
@@ -548,11 +538,22 @@ app.post('/webhooks/openphone', async (req, res) => {
     const normalized = normalizeMessageEvent(event);
     console.log('🔄 NORMALIZADO:', JSON.stringify(normalized, null, 2));
 
-    // Difundir somente eventos de mensagem
-    if (normalized?.type?.includes('message')) {
-      // Logs estruturados
-      console.log('📬 Evento:', { type: normalized.type, id: normalized?.data?.id, to: normalized?.data?.to, from: normalized?.data?.from });
-      broadcast('openphone', normalized);
+    // Difundir eventos via WebSocket
+    if (normalized?.type) {
+      const type = normalized.type;
+      const data = normalized.data;
+      console.log('📬 Evento:', { type, id: data?.id, to: data?.to, from: data?.from });
+
+      // Nova mensagem recebida
+      if (type.includes('message.received')) {
+        wsBroadcast('message_received', data);
+      }
+
+      // Atualização de status para falha
+      const status = String(data?.status || '').toLowerCase();
+      if (type.includes('failed') || status === 'failed') {
+        wsBroadcast('message_status_updated', { id: data?.id, status: 'failed', ...data });
+      }
     } else {
       console.log('⚠️ Evento não é de mensagem ou não foi normalizado:', normalized?.type || 'tipo indefinido');
     }
@@ -577,7 +578,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Server listening on http://0.0.0.0:${PORT}`);
   console.log(`Frontend available at: http://localhost:${PORT}`);
   
