@@ -850,6 +850,49 @@ function showChatInterface() {
 }
 
 // ======= Messages =======
+
+// Função centralizada para adicionar mensagens sem duplicação
+function addMessageToState(message) {
+  // Verificar duplicação por múltiplos critérios
+  const isDuplicate = state.messages.some(existing => {
+    // 1. Mesmo ID (mais confiável)
+    if (message.id && existing.id && message.id === existing.id) return true;
+    
+    // 2. Mesmo tempId (para mensagens otimistas)
+    if (message._tempId && existing._tempId && message._tempId === existing._tempId) return true;
+    
+    // 3. Mesmo conteúdo + direção + timestamp próximo (fallback)
+    const sameContent = (message.content || message.text || '').trim() === (existing.content || existing.text || '').trim();
+    const sameDirection = message.direction === existing.direction;
+    const timeDiff = Math.abs(new Date(message.createdAt) - new Date(existing.createdAt));
+    if (sameContent && sameDirection && timeDiff < 3000) return true;
+    
+    // 4. Para mensagens traduzidas: verificar texto original
+    if (message._originalText && existing._originalText && 
+        message._originalText.trim() === existing._originalText.trim() &&
+        message.direction === existing.direction &&
+        timeDiff < 3000) return true;
+    
+    return false;
+  });
+  
+  if (!isDuplicate) {
+    state.messages.push(message);
+    return true;
+  }
+  return false;
+}
+
+// Função para atualizar mensagem existente
+function updateMessageInState(criteria, updates) {
+  const index = state.messages.findIndex(msg => criteria(msg));
+  if (index !== -1) {
+    state.messages[index] = { ...state.messages[index], ...updates };
+    return true;
+  }
+  return false;
+}
+
 async function loadMessages() {
   if (!state.active) return;
   
@@ -1067,7 +1110,8 @@ async function sendMessage() {
         };
         // Guardar original para heurística futura (se necessário)
         optimistic._originalText = text;
-        state.messages.push(optimistic);
+        optimistic._tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        addMessageToState(optimistic);
         renderMessages();
 
         // Após envio, aguarde a conversa real aparecer e abra-a
@@ -1089,6 +1133,7 @@ async function sendMessage() {
           status: 'pending'
         };
         previewMsg._originalText = text;
+        previewMsg._tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const idx = state.conversations.findIndex(c => c.id === state.active.id || (Array.isArray(c.participants) && c.participants.includes(state.active.participant)) );
         if (idx !== -1) {
           state.conversations[idx].lastMessage = previewMsg;
@@ -1101,7 +1146,7 @@ async function sendMessage() {
           renderConversations();
         }
         // UI otimista: insere a mensagem local na janela atual sem novo fetch
-        state.messages.push(previewMsg);
+        addMessageToState(previewMsg);
         renderMessages();
       }
     }
@@ -1210,42 +1255,25 @@ async function pollActiveConversationOnce() {
 
       // Tentar casar com a última mensagem pendente otimista
       if (isOutgoing) {
-        const lastPendingIdx = [...state.messages].reverse().findIndex(m =>
-          (m.id?.startsWith('local-') || m.status === 'pending') &&
-          (m.direction === 'outgoing' || (m.from && m.from === state.phoneNumberId))
-        );
-        if (lastPendingIdx !== -1) {
-          const idx = state.messages.length - 1 - lastPendingIdx;
-          const orig = state.messages[idx];
-          // Casar por conteúdo/destinatário para evitar duplicidade
-          const toMatch = Array.isArray(orig.to) ? orig.to[0] : orig.to;
-          const incomingTo = Array.isArray(msg.to) ? msg.to[0] : msg.to;
-          const toSame = (toMatch || '') === (incomingTo || state.active.participant || '');
-          const incomingContent = (msg.content || msg.text || '').trim();
-          if (toSame) {
-            state.messages[idx] = { 
-              ...orig, 
-              id: msg.id || orig.id, 
-              status: msg.status || 'delivered', 
-              createdAt: msg.createdAt || orig.createdAt,
-              content: incomingContent || orig.content,
-              text: incomingContent || orig.text
-            };
-            hasUpdates = true;
-            continue; // Não adicionar novamente
+        const updated = updateMessageInState(
+          m => (m.id?.startsWith('local-') || m.status === 'pending') &&
+               (m.direction === 'outgoing' || (m.from && m.from === state.phoneNumberId)),
+          {
+            id: msg.id || `delivered-${Date.now()}`,
+            status: msg.status || 'delivered',
+            createdAt: msg.createdAt,
+            content: msg.content || msg.text,
+            text: msg.content || msg.text
           }
+        );
+        if (updated) {
+          hasUpdates = true;
+          continue;
         }
       }
 
-      // Inserir mensagens ainda não presentes (por id ou conteúdo)
-      const already = hasId ? state.messages.some(m => m.id === msg.id) : 
-        state.messages.some(m => 
-          (m.content || m.text || '').trim() === (msg.content || msg.text || '').trim() &&
-          m.direction === msg.direction &&
-          Math.abs(new Date(m.createdAt) - new Date(msg.createdAt)) < 5000 // 5s tolerance
-        );
-      if (!already) {
-        state.messages.push(msg);
+      // Inserir mensagens ainda não presentes usando função centralizada
+      if (addMessageToState(msg)) {
         hasUpdates = true;
       }
     }
@@ -1370,49 +1398,35 @@ function startSSE() {
 
       if (isForActive) {
         if (!state.active.phoneNumberId) {
-          const lastIdx = [...state.messages].reverse().findIndex(m => m.id?.startsWith('local-') && m.direction === 'outgoing');
-          if (lastIdx !== -1) {
-            const idx = state.messages.length - 1 - lastIdx;
-            const orig = state.messages[idx];
-            const incomingContent = message.content || message.text || '';
-            state.messages[idx] = { 
-              ...orig, 
-              id: message.id || orig.id, 
+          const updated = updateMessageInState(
+            m => m.id?.startsWith('local-') && m.direction === 'outgoing',
+            {
+              id: message.id || `delivered-${Date.now()}`,
               status: 'delivered',
-              content: incomingContent || orig.content,
-              text: incomingContent || orig.text
-            };
-            renderMessages();
-          }
+              content: message.content || message.text,
+              text: message.content || message.text
+            }
+          );
+          if (updated) renderMessages();
           updateConversationWithNewMessage(message);
         } else {
           if (type === 'message.delivered') {
-            const lastPendingIdx = [...state.messages].reverse().findIndex(m =>
-              (m.id?.startsWith('local-') || m.status === 'pending') && m.direction === 'outgoing'
-            );
-            if (lastPendingIdx !== -1) {
-              const idx = state.messages.length - 1 - lastPendingIdx;
-              const orig = state.messages[idx];
-              const incomingContent = message.content || message.text || '';
-              state.messages[idx] = { 
-                ...orig, 
-                id: message.id || orig.id, 
+            const updated = updateMessageInState(
+              m => (m.id?.startsWith('local-') || m.status === 'pending') && m.direction === 'outgoing',
+              {
+                id: message.id || `delivered-${Date.now()}`,
                 status: 'delivered',
-                content: incomingContent || orig.content,
-                text: incomingContent || orig.text
-              };
-              renderMessages();
-            }
-          } else {
-            // Mensagens recebidas: verificar duplicação por ID
-            const hasId = !!message.id;
-            const already = hasId && state.messages.some(m => m.id && m.id === message.id);
-            if (!already) {
-              // Se não há campos de roteamento, associar à conversa ativa
-              if (!message.from && state.active?.participant) {
-                message = { ...message, from: state.active.participant, direction: 'incoming' };
+                content: message.content || message.text,
+                text: message.content || message.text
               }
-              state.messages.push(message);
+            );
+            if (updated) renderMessages();
+          } else {
+            // Mensagens recebidas: usar função centralizada
+            if (!message.from && state.active?.participant) {
+              message = { ...message, from: state.active.participant, direction: 'incoming' };
+            }
+            if (addMessageToState(message)) {
               renderMessages();
             }
           }
