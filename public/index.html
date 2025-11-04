@@ -1203,6 +1203,7 @@ async function pollActiveConversationOnce() {
     incoming.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
     // Atualiza/mescla mensagens existentes e resolve pendentes
+    let hasUpdates = false;
     for (const msg of incoming) {
       const hasId = !!msg.id;
       const isOutgoing = msg.direction === 'outgoing';
@@ -1221,7 +1222,6 @@ async function pollActiveConversationOnce() {
           const incomingTo = Array.isArray(msg.to) ? msg.to[0] : msg.to;
           const toSame = (toMatch || '') === (incomingTo || state.active.participant || '');
           const incomingContent = (msg.content || msg.text || '').trim();
-          const contentMatch = (orig.content || '').trim() === incomingContent;
           if (toSame) {
             state.messages[idx] = { 
               ...orig, 
@@ -1231,18 +1231,28 @@ async function pollActiveConversationOnce() {
               content: incomingContent || orig.content,
               text: incomingContent || orig.text
             };
+            hasUpdates = true;
+            continue; // Não adicionar novamente
           }
         }
       }
 
-      // Inserir mensagens ainda não presentes (por id)
-      const already = hasId && state.messages.some(m => m.id === msg.id);
+      // Inserir mensagens ainda não presentes (por id ou conteúdo)
+      const already = hasId ? state.messages.some(m => m.id === msg.id) : 
+        state.messages.some(m => 
+          (m.content || m.text || '').trim() === (msg.content || msg.text || '').trim() &&
+          m.direction === msg.direction &&
+          Math.abs(new Date(m.createdAt) - new Date(msg.createdAt)) < 5000 // 5s tolerance
+        );
       if (!already) {
         state.messages.push(msg);
+        hasUpdates = true;
       }
     }
 
-    renderMessages();
+    if (hasUpdates) {
+      renderMessages();
+    }
 
     // Atualiza preview da conversa ativa
     const newest = incoming[incoming.length - 1];
@@ -1372,10 +1382,8 @@ function startSSE() {
               content: incomingContent || orig.content,
               text: incomingContent || orig.text
             };
-          } else if (message && (message.content || message.text)) {
-            state.messages.push({ ...message, status: 'delivered' });
+            renderMessages();
           }
-          renderMessages();
           updateConversationWithNewMessage(message);
         } else {
           if (type === 'message.delivered') {
@@ -1393,11 +1401,10 @@ function startSSE() {
                 content: incomingContent || orig.content,
                 text: incomingContent || orig.text
               };
-            } else if (message && (message.content || message.text)) {
-              state.messages.push({ ...message, status: 'delivered' });
+              renderMessages();
             }
           } else {
-            // Mensagens recebidas: se faltar id, ainda assim exibir para conversa ativa
+            // Mensagens recebidas: verificar duplicação por ID
             const hasId = !!message.id;
             const already = hasId && state.messages.some(m => m.id && m.id === message.id);
             if (!already) {
@@ -1406,9 +1413,9 @@ function startSSE() {
                 message = { ...message, from: state.active.participant, direction: 'incoming' };
               }
               state.messages.push(message);
+              renderMessages();
             }
           }
-          renderMessages();
           updateConversationWithNewMessage(message);
         }
       } else {
