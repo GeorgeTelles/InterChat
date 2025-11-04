@@ -1048,17 +1048,25 @@ async function sendMessage() {
       messageInput.value = '';
       sendBtn.classList.remove('enabled');
 
+      // Extrair conteúdo/ID que o backend retornou (mensagem já traduzida)
+      const serverContent = (
+        resp?.data?.content || resp?.data?.text || resp?.content || resp?.text || text
+      );
+      const serverId = (resp?.data?.id || resp?.id);
+
       // If this is a new conversation without phoneNumberId, do optimistic update
       if (!state.active.phoneNumberId) {
         const optimistic = {
-          id: `local-${Date.now()}`,
-          content: text,
-          text,
+          id: serverId || `local-${Date.now()}`,
+          content: serverContent,
+          text: serverContent,
           to: [state.active.participant],
           direction: 'outgoing',
           createdAt: new Date().toISOString(),
           status: 'pending'
         };
+        // Guardar original para heurística futura (se necessário)
+        optimistic._originalText = text;
         state.messages.push(optimistic);
         renderMessages();
 
@@ -1073,13 +1081,14 @@ async function sendMessage() {
       } else {
         // Atualiza preview da conversa na lista imediatamente
         const previewMsg = {
-          id: `local-${Date.now()}`,
-          content: text,
+          id: serverId || `local-${Date.now()}`,
+          content: serverContent,
           direction: 'outgoing',
           to: [state.active.participant],
           createdAt: new Date().toISOString(),
           status: 'pending'
         };
+        previewMsg._originalText = text;
         const idx = state.conversations.findIndex(c => c.id === state.active.id || (Array.isArray(c.participants) && c.participants.includes(state.active.participant)) );
         if (idx !== -1) {
           state.conversations[idx].lastMessage = previewMsg;
@@ -1114,7 +1123,23 @@ async function sendMessage() {
         // Success on retry
         messageInput.value = '';
         sendBtn.classList.remove('enabled');
-        // Mantém UI otimista; SSE cuidará do estado final
+        // Atualiza último otimista com conteúdo retornado (traduzido)
+        const serverContent2 = (
+          resp2?.data?.content || resp2?.data?.text || resp2?.content || resp2?.text || messageInput.value.trim()
+        );
+        const serverId2 = (resp2?.data?.id || resp2?.id);
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+          const m = state.messages[i];
+          const toMatch = Array.isArray(m.to) ? m.to[0] : m.to;
+          const isFromMe = m.direction === 'outgoing' || (m.from && m.from === state.phoneNumberId);
+          if (isFromMe && toMatch === state.active.participant && (m.status === 'pending' || (m.id && m.id.startsWith('local-')))) {
+            m.content = serverContent2;
+            m.text = serverContent2;
+            if (serverId2) m.id = serverId2;
+            break;
+          }
+        }
+        renderMessages();
       }
     } catch (err2) {
       console.error('Final send failure:', err2);
@@ -1194,10 +1219,18 @@ async function pollActiveConversationOnce() {
           // Casar por conteúdo/destinatário para evitar duplicidade
           const toMatch = Array.isArray(orig.to) ? orig.to[0] : orig.to;
           const incomingTo = Array.isArray(msg.to) ? msg.to[0] : msg.to;
-          const contentMatch = (orig.content || '').trim() === (msg.content || msg.text || '').trim();
           const toSame = (toMatch || '') === (incomingTo || state.active.participant || '');
-          if (contentMatch && toSame) {
-            state.messages[idx] = { ...orig, id: msg.id || orig.id, status: msg.status || 'delivered', createdAt: msg.createdAt || orig.createdAt };
+          const incomingContent = (msg.content || msg.text || '').trim();
+          const contentMatch = (orig.content || '').trim() === incomingContent;
+          if (toSame) {
+            state.messages[idx] = { 
+              ...orig, 
+              id: msg.id || orig.id, 
+              status: msg.status || 'delivered', 
+              createdAt: msg.createdAt || orig.createdAt,
+              content: incomingContent || orig.content,
+              text: incomingContent || orig.text
+            };
           }
         }
       }
@@ -1331,7 +1364,14 @@ function startSSE() {
           if (lastIdx !== -1) {
             const idx = state.messages.length - 1 - lastIdx;
             const orig = state.messages[idx];
-            state.messages[idx] = { ...orig, id: message.id || orig.id, status: 'delivered' };
+            const incomingContent = message.content || message.text || '';
+            state.messages[idx] = { 
+              ...orig, 
+              id: message.id || orig.id, 
+              status: 'delivered',
+              content: incomingContent || orig.content,
+              text: incomingContent || orig.text
+            };
           } else if (message && (message.content || message.text)) {
             state.messages.push({ ...message, status: 'delivered' });
           }
@@ -1345,7 +1385,14 @@ function startSSE() {
             if (lastPendingIdx !== -1) {
               const idx = state.messages.length - 1 - lastPendingIdx;
               const orig = state.messages[idx];
-              state.messages[idx] = { ...orig, id: message.id || orig.id, status: 'delivered' };
+              const incomingContent = message.content || message.text || '';
+              state.messages[idx] = { 
+                ...orig, 
+                id: message.id || orig.id, 
+                status: 'delivered',
+                content: incomingContent || orig.content,
+                text: incomingContent || orig.text
+              };
             } else if (message && (message.content || message.text)) {
               state.messages.push({ ...message, status: 'delivered' });
             }
