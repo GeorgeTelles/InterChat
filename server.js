@@ -407,37 +407,79 @@ app.get('/api/search', async (req, res) => {
 
     const fs = require('fs');
     const dumpPath = path.join(__dirname, 'scripts', 'conversations_dump.json');
+    const qLower = q.toLowerCase();
+    const qDigits = q.replace(/\D+/g, '');
+
+    const matchesQuery = (conv) => {
+      const id = String(conv.id || '').toLowerCase();
+      const name = String(conv.name || '').toLowerCase();
+      const contactName = String(conv.participantContacts?.[0]?.displayName || '').toLowerCase();
+
+      const participants = Array.isArray(conv.participants) ? conv.participants : [];
+      const participantNumbers = participants.map(p => {
+        if (typeof p === 'string') return p;
+        if (typeof p === 'object' && p) return p.phoneNumber || p.number || p.e164 || '';
+        return '';
+      });
+      const phoneNumber = String(conv.phoneNumber || '').toLowerCase();
+
+      const hay = [id, name, contactName, phoneNumber, ...participantNumbers.map(n => String(n).toLowerCase())].join(' ');
+
+      const hasTextMatch = hay.includes(qLower);
+
+      const hasDigitMatch = qDigits
+        ? participantNumbers.some(n => String(n).replace(/\D+/g, '').includes(qDigits))
+          || phoneNumber.replace(/\D+/g, '').includes(qDigits)
+        : false;
+
+      const isSolo = Array.isArray(conv.participants) ? conv.participants.length === 1 : true;
+
+      return (hasTextMatch || hasDigitMatch) && isSolo;
+    };
+
     let results = [];
 
     if (fs.existsSync(dumpPath)) {
       const raw = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
       const all = Array.isArray(raw?.all?.raw) ? raw.all.raw : [];
-      const qLower = q.toLowerCase();
-      results = all.filter(c => {
-        const num = Array.isArray(c.participants) ? (c.participants[0] || '') : '';
-        const hay = `${c.id || ''} ${c.name || ''} ${num}`.toLowerCase();
-        return hay.includes(qLower);
-      }).map(c => ({
+      results = all.filter(matchesQuery).map(c => ({
         id: c.id,
         participants: c.participants,
         phoneNumberId: c.phoneNumberId,
         lastActivityAt: c.lastActivityAt,
         updatedAt: c.updatedAt,
         createdAt: c.createdAt,
-        name: c.name || null
+        name: c.name || c.participantContacts?.[0]?.displayName || null
       }));
     } else {
-      // Fallback: query remote conversations and filter client-side
-      const url = `${OPENPHONE_API}/conversations?maxResults=50`;
-      const resp = await fetch(url, { headers: authHeader() });
-      const data = await resp.json().catch(() => ({}));
-      const list = Array.isArray(data?.data) ? data.data : [];
-      const qLower = q.toLowerCase();
-      results = list.filter(c => {
-        const num = Array.isArray(c.participants) ? (c.participants[0] || '') : '';
-        const hay = `${c.id || ''} ${c.name || ''} ${num}`.toLowerCase();
-        return hay.includes(qLower);
-      });
+      const MAX_PAGES = 10;
+      const PAGE_SIZE = 50;
+      let pageToken = undefined;
+      let pages = 0;
+      const all = [];
+
+      while (pages < MAX_PAGES) {
+        const url = new URL(`${OPENPHONE_API}/conversations`);
+        url.searchParams.set('maxResults', String(PAGE_SIZE));
+        if (pageToken) url.searchParams.set('pageToken', pageToken);
+
+        const resp = await fetch(url.toString(), { headers: authHeader() });
+        const data = await resp.json().catch(() => ({}));
+        const list = Array.isArray(data?.data) ? data.data : [];
+        all.push(...list);
+        pages++;
+        if (data?.nextPageToken) pageToken = data.nextPageToken; else break;
+      }
+
+      results = all.filter(matchesQuery).map(c => ({
+        id: c.id,
+        participants: c.participants,
+        phoneNumberId: c.phoneNumberId,
+        lastActivityAt: c.lastActivityAt,
+        updatedAt: c.updatedAt,
+        createdAt: c.createdAt,
+        name: c.name || c.participantContacts?.[0]?.displayName || null
+      }));
     }
 
     res.status(200).json({ data: results });
