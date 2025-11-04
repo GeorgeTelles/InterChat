@@ -853,6 +853,15 @@ function showChatInterface() {
 
 // Função centralizada para adicionar mensagens sem duplicação
 function addMessageToState(message) {
+  // DEBUG: Log para identificar mensagens estranhas
+  console.log('🔍 addMessageToState called with:', {
+    id: message.id,
+    content: message.content || message.text,
+    direction: message.direction,
+    _tempId: message._tempId,
+    _originalText: message._originalText
+  });
+  
   // Verificar duplicação por múltiplos critérios
   const isDuplicate = state.messages.some(existing => {
     // 1. Mesmo ID (mais confiável)
@@ -877,8 +886,11 @@ function addMessageToState(message) {
   });
   
   if (!isDuplicate) {
+    console.log('✅ Adding message to state:', message.content || message.text);
     state.messages.push(message);
     return true;
+  } else {
+    console.log('❌ Duplicate message blocked:', message.content || message.text);
   }
   return false;
 }
@@ -934,6 +946,7 @@ async function loadMessages() {
     }
     
     state.messages = uniq;
+    console.log('📥 Loaded messages from API:', uniq.map(m => ({ id: m.id, content: m.content || m.text, direction: m.direction })));
     renderMessages();
   } catch (error) {
     console.error('Error loading messages:', error);
