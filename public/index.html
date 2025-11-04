@@ -654,7 +654,7 @@ async function loadConversations() {
       }
 
       state.conversations = finalConversations;
-      state.allConversations = finalConversations;
+      state.allConversations = [...finalConversations]; // Use a copy to prevent reference issues
   // Set our phoneNumberId if unknown, using the first conversation as reference
   if (!state.phoneNumberId && finalConversations.length > 0) {
     state.phoneNumberId = finalConversations[0].phoneNumberId || null;
@@ -1138,13 +1138,30 @@ function updateConversationWithNewMessage(message) {
     Array.isArray(conv.participants) && conv.participants.includes(participantNumber)
   );
   
+  // Also find in allConversations for search consistency
+  const existingAllConvIndex = state.allConversations.findIndex(conv => 
+    Array.isArray(conv.participants) && conv.participants.includes(participantNumber)
+  );
+  
   if (existingConvIndex !== -1) {
-    // Update existing conversation
+    // Update existing conversation in both arrays
     state.conversations[existingConvIndex].lastMessage = message;
     state.conversations[existingConvIndex].lastActivityAt = message.createdAt;
     
+    if (existingAllConvIndex !== -1) {
+      state.allConversations[existingAllConvIndex].lastMessage = message;
+      state.allConversations[existingAllConvIndex].lastActivityAt = message.createdAt;
+    }
+    
     // Re-sort conversations by last activity
     state.conversations.sort((a, b) => {
+      const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
+      const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
+      return timeB - timeA; // Descending order - newest first
+    });
+    
+    // Re-sort allConversations as well
+    state.allConversations.sort((a, b) => {
       const timeA = new Date(a.lastActivityAt || a.updatedAt || a.createdAt);
       const timeB = new Date(b.lastActivityAt || b.updatedAt || b.createdAt);
       return timeB - timeA; // Descending order - newest first
@@ -1278,7 +1295,7 @@ async function init() {
 function filterConversations(query) {
   const q = (query || '').trim().toLowerCase();
   if (!q) {
-    state.conversations = state.allConversations;
+    state.conversations = [...state.allConversations]; // Use a copy
     renderConversations();
     return;
   }
