@@ -361,6 +361,54 @@ app.get('/api/messages', async (req, res) => {
   }
 });
 
+// GET /api/search - Search conversations (local JSON fallback)
+app.get('/api/search', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (!q) return res.status(400).json({ error: 'q é obrigatório' });
+
+    const fs = require('fs');
+    const dumpPath = path.join(__dirname, 'scripts', 'conversations_dump.json');
+    let results = [];
+
+    if (fs.existsSync(dumpPath)) {
+      const raw = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
+      const all = Array.isArray(raw?.all?.raw) ? raw.all.raw : [];
+      const qLower = q.toLowerCase();
+      results = all.filter(c => {
+        const num = Array.isArray(c.participants) ? (c.participants[0] || '') : '';
+        const hay = `${c.id || ''} ${c.name || ''} ${num}`.toLowerCase();
+        return hay.includes(qLower);
+      }).map(c => ({
+        id: c.id,
+        participants: c.participants,
+        phoneNumberId: c.phoneNumberId,
+        lastActivityAt: c.lastActivityAt,
+        updatedAt: c.updatedAt,
+        createdAt: c.createdAt,
+        name: c.name || null
+      }));
+    } else {
+      // Fallback: query remote conversations and filter client-side
+      const url = `${OPENPHONE_API}/conversations?maxResults=50`;
+      const resp = await fetch(url, { headers: authHeader() });
+      const data = await resp.json().catch(() => ({}));
+      const list = Array.isArray(data?.data) ? data.data : [];
+      const qLower = q.toLowerCase();
+      results = list.filter(c => {
+        const num = Array.isArray(c.participants) ? (c.participants[0] || '') : '';
+        const hay = `${c.id || ''} ${c.name || ''} ${num}`.toLowerCase();
+        return hay.includes(qLower);
+      });
+    }
+
+    res.status(200).json({ data: results });
+  } catch (err) {
+    console.error('Error in /api/search:', err);
+    res.status(500).json({ error: 'Falha na busca' });
+  }
+});
+
 // POST /api/messages - Send a message
 app.post('/api/messages', async (req, res) => {
   try {
@@ -435,6 +483,7 @@ app.post('/api/translate', async (req, res) => {
 
 // SSE for real-time updates
 const sseClients = new Set();
+const sseHeartbeats = new Map();
 
 app.get('/api/sse', (req, res) => {
   res.writeHead(200, {
@@ -443,11 +492,32 @@ app.get('/api/sse', (req, res) => {
     'Connection': 'keep-alive',
     'Access-Control-Allow-Origin': ORIGIN,
   });
-  
-  res.write('\n');
+
+  // Hint client reconnection interval
+  res.write('retry: 3000\n\n');
+  // Initial ping to confirm open
+  res.write(`event: ping\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
+
   sseClients.add(res);
-  
-  req.on('close', () => sseClients.delete(res));
+  console.log(`🔌 SSE client connected. Total: ${sseClients.size}`);
+
+  // Heartbeat every 25s to keep connection alive through proxies
+  const interval = setInterval(() => {
+    try {
+      res.write(`event: ping\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
+    } catch (err) {
+      console.warn('⚠️ SSE heartbeat write failed:', err?.message);
+    }
+  }, 25000);
+  sseHeartbeats.set(res, interval);
+
+  req.on('close', () => {
+    sseClients.delete(res);
+    const hb = sseHeartbeats.get(res);
+    if (hb) clearInterval(hb);
+    sseHeartbeats.delete(res);
+    console.log(`🔌 SSE client disconnected. Total: ${sseClients.size}`);
+  });
 });
 
 function broadcast(type, payload) {
@@ -498,6 +568,12 @@ app.post('/webhooks/openphone', async (req, res) => {
 // Serve frontend
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Centralized error handler (last middleware)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Erro interno do servidor' });
 });
 
 // Start server

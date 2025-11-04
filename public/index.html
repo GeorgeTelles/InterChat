@@ -234,7 +234,7 @@
           <div style="height:8px"></div>
           <div class="search" role="search">
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="#94A3B8" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="#94A3B8" stroke-width="2" stroke-linecap="round"/></svg>
-            <input type="text" data-i18n="[placeholder]search_placeholder" placeholder="Buscar..." aria-label="Search"/>
+            <input id="searchInput" type="text" data-i18n="[placeholder]search_placeholder" placeholder="Buscar..." aria-label="Search"/>
           </div>
         </div>
         <div class="threads" role="list" id="conversationsList">
@@ -361,6 +361,9 @@ const translations = {
       connecting: 'Conectando...',
       connected: 'Conectado',
       disconnected: 'Desconectado',
+      reconnecting: 'Reconectando…',
+      searching: 'Buscando…',
+      no_results: 'Sem resultados',
       send: 'Enviar',
       sending: 'Enviando…',
       error_loading_conversations: 'Erro ao carregar conversas',
@@ -392,6 +395,9 @@ const translations = {
       connecting: 'Connecting...',
       connected: 'Connected',
       disconnected: 'Disconnected',
+      reconnecting: 'Reconnecting…',
+      searching: 'Searching…',
+      no_results: 'No results',
       send: 'Send',
       sending: 'Sending…',
       error_loading_conversations: 'Error loading conversations',
@@ -423,6 +429,9 @@ const translations = {
       connecting: 'Conectando...',
       connected: 'Conectado',
       disconnected: 'Desconectado',
+      reconnecting: 'Reconectando…',
+      searching: 'Buscando…',
+      no_results: 'Sin resultados',
       send: 'Enviar',
       sending: 'Enviando…',
       error_loading_conversations: 'Error al cargar conversaciones',
@@ -454,6 +463,9 @@ const translations = {
       connecting: 'Connexion...',
       connected: 'Connecté',
       disconnected: 'Déconnecté',
+      reconnecting: 'Reconnexion…',
+      searching: 'Recherche…',
+      no_results: 'Aucun résultat',
       send: 'Envoyer',
       sending: 'Envoi…',
       error_loading_conversations: 'Erreur lors du chargement des conversations',
@@ -484,7 +496,9 @@ const state = {
   messages: [],
   uiLang: localStorage.getItem('uiLang') || 'pt',
   outLang: localStorage.getItem('outLang') || '',
-  phoneNumberId: null
+  phoneNumberId: null,
+  connectionStatus: 'connecting',
+  search: { query: '', results: [], status: 'idle' }
 };
 
 // ======= API Module =======
@@ -527,6 +541,14 @@ API.translateText = async function({ text, targetLang, prompt }) {
     body: JSON.stringify({ text, targetLang, prompt })
   });
   return response.json();
+};
+
+// Search conversations API
+API.searchConversations = async function(q) {
+  const url = new URL('/api/search', window.location.origin);
+  url.searchParams.set('q', q);
+  const resp = await fetch(url.toString());
+  return resp.json();
 };
 
 // ======= UI Functions =======
@@ -670,9 +692,10 @@ async function loadConversations() {
   }
 }
 
-function renderConversations() {
+function renderConversations(listOverride) {
   const list = document.getElementById('conversationsList');
-  console.log(`🎨 Rendering ${state.conversations.length} conversations`);
+  const baseCount = Array.isArray(listOverride) ? listOverride.length : state.conversations.length;
+  console.log(`🎨 Rendering ${baseCount} conversations`);
   
   // Prevent multiple simultaneous renders
   if (window.isRendering) {
@@ -684,11 +707,24 @@ function renderConversations() {
   // Clear the list
   list.innerHTML = '';
   
+  if (state.search.status === 'searching') {
+    list.innerHTML = `<div class="loading" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('searching')}</div>`;
+    window.isRendering = false;
+    return;
+  }
+  
+  const listData = Array.isArray(listOverride) ? listOverride : state.conversations;
+  if (state.search.query && listData.length === 0) {
+    list.innerHTML = `<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('no_results')}</div>`;
+    window.isRendering = false;
+    return;
+  }
+  
   // Deduplicate by ID first
-  const byId = state.conversations.filter((conv, index, self) => 
+  const byId = listData.filter((conv, index, self) => 
     index === self.findIndex(c => c.id === conv.id)
   );
-  if (byId.length !== state.conversations.length) {
+  if (!listOverride && byId.length !== state.conversations.length) {
     console.log(`🔧 Removed ${state.conversations.length - byId.length} duplicates by id before rendering`);
   }
 
@@ -708,9 +744,14 @@ function renderConversations() {
       }
     }
   }
-  state.conversations = Array.from(byNumberMap.values()).map(x => x.conv);
+  const finalList = Array.from(byNumberMap.values()).map(x => x.conv);
+  if (listOverride) {
+    // If rendering override list, don't mutate baseline state
+  } else {
+    state.conversations = finalList;
+  }
   
-  state.conversations.forEach(conv => {
+  finalList.forEach(conv => {
     const item = document.createElement('div');
     item.className = 'item';
     item.setAttribute('role', 'listitem');
@@ -1159,6 +1200,8 @@ function updateConversationWithNewMessage(message) {
 
 function startSSE() {
   try {
+    updateConnectionStatus('connecting');
+    let hasConnected = false;
     const eventSource = new EventSource('/api/sse');
     
     eventSource.addEventListener('openphone', (event) => {
@@ -1223,12 +1266,16 @@ function startSSE() {
       }
     });
     
+    eventSource.addEventListener('ping', () => {
+      // heartbeat received; do nothing
+    });
     eventSource.addEventListener('open', () => {
+      hasConnected = true;
       updateConnectionStatus('connected');
     });
     
     eventSource.addEventListener('error', () => {
-      updateConnectionStatus('disconnected');
+      updateConnectionStatus(hasConnected ? 'reconnecting' : 'disconnected');
     });
     
   } catch (error) {
@@ -1246,7 +1293,8 @@ function updateConnectionStatus(status) {
     statusEl.classList.add('lead');
     statusText.setAttribute('data-i18n', 'connected');
   } else {
-    statusText.setAttribute('data-i18n', status === 'disconnected' ? 'disconnected' : 'connecting');
+    const key = status === 'disconnected' ? 'disconnected' : (status === 'reconnecting' ? 'reconnecting' : 'connecting');
+    statusText.setAttribute('data-i18n', key);
   }
   
   applyI18n();
@@ -1266,6 +1314,44 @@ async function init() {
   
   // Start SSE
   startSSE();
+
+  // Wire search input
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    let timer;
+    searchInput.addEventListener('input', async () => {
+      const q = searchInput.value.trim();
+      state.search.query = q;
+      if (timer) clearTimeout(timer);
+      if (!q) {
+        state.search.status = 'idle';
+        renderConversations();
+        return;
+      }
+      state.search.status = 'searching';
+      renderConversations([]);
+      timer = setTimeout(async () => {
+        try {
+          const resp = await API.searchConversations(q);
+          const results = Array.isArray(resp?.data) ? resp.data : [];
+          state.search.results = results;
+          state.search.status = 'idle';
+          renderConversations(results);
+        } catch (err) {
+          console.warn('Search failed; using local filter:', err);
+          const local = state.conversations.filter(c => {
+            const num = (Array.isArray(c.participants) ? c.participants[0] : c.phoneNumber) || '';
+            const name = c.participantContacts?.[0]?.displayName || c.name || '';
+            const lm = c.lastMessage?.content || c.lastMessage?.text || '';
+            const hay = `${num} ${name} ${lm}`.toLowerCase();
+            return hay.includes(q.toLowerCase());
+          });
+          state.search.status = 'idle';
+          renderConversations(local);
+        }
+      }, 250);
+    });
+  }
 }
 
 // New Message modal and creation
