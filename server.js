@@ -438,74 +438,16 @@ const sseClients = new Set();
 
 app.get('/api/sse', (req, res) => {
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    'Keep-Alive': 'timeout=600, max=1000',
-    'X-Accel-Buffering': 'no',
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
     'Access-Control-Allow-Origin': ORIGIN,
-    'Access-Control-Allow-Credentials': 'true',
-    'Vary': 'Origin',
   });
   
-  if (typeof res.flushHeaders === 'function') {
-    res.flushHeaders();
-  }
-
-  // Tune socket to reduce buffering and avoid timeouts
-  try {
-    if (req.socket) {
-      req.socket.setNoDelay(true);
-      req.socket.setKeepAlive(true);
-      req.socket.setTimeout(0);
-    }
-  } catch (_) {}
-  
-  // Envia um comentário inicial para forçar proxies/navegadores a liberar o stream
-  res.write(':ok\n\n');
-  // Envia um evento inicial para que o front possa marcar como conectado
-  try {
-    res.write('event: ready\n');
-    res.write('data: ok\n\n');
-    // Define retry padrão do SSE para reconexões
-    res.write('retry: 5000\n');
-  } catch (_) {}
-  // Opcional: enviar um pequeno evento de hello (descomente se quiser)
-  // res.write('event: hello\n');
-  // res.write('data: connected\n\n');
-
+  res.write('\n');
   sseClients.add(res);
-  console.log('🔌 SSE client conectado. Total:', sseClients.size);
-
-  // Burst inicial para empurrar bytes e liberar imediatamente o stream
-  let burstCount = 0;
-  const burst = setInterval(() => {
-    try {
-      res.write(':ping\n\n');
-      burstCount++;
-      if (burstCount >= 3) {
-        clearInterval(burst);
-      }
-    } catch (err) {
-      clearInterval(burst);
-    }
-  }, 1000);
-
-  // Heartbeat periódico para manter a conexão viva através de proxies/CDNs
-  const heartbeat = setInterval(() => {
-    try {
-      res.write(':keepalive\n\n');
-    } catch (_) {
-      clearInterval(heartbeat);
-      sseClients.delete(res);
-    }
-  }, 25000);
   
-  req.on('close', () => {
-    clearInterval(heartbeat);
-    clearInterval(burst);
-    sseClients.delete(res);
-    console.log('❌ SSE client desconectado. Total:', sseClients.size);
-  });
+  req.on('close', () => sseClients.delete(res));
 });
 
 function broadcast(type, payload) {

@@ -484,9 +484,7 @@ const state = {
   messages: [],
   uiLang: localStorage.getItem('uiLang') || 'pt',
   outLang: localStorage.getItem('outLang') || '',
-  phoneNumberId: null,
-  allConversations: [],
-  searchQuery: ''
+  phoneNumberId: null
 };
 
 // ======= API Module =======
@@ -585,19 +583,11 @@ async function loadConversations() {
   window.isLoadingConversations = true;
   
   const list = document.getElementById('conversationsList');
-  let loading = document.getElementById('conversationsLoading');
-  // Ensure loading indicator exists even after list re-render clears innerHTML
-  if (list && !loading) {
-    loading = document.createElement('div');
-    loading.className = 'loading';
-    loading.id = 'conversationsLoading';
-    loading.innerHTML = '<div data-i18n="loading">Carregando...</div>';
-    list.prepend(loading);
-  }
+  const loading = document.getElementById('conversationsLoading');
   
   try {
     console.log('🔄 Loading conversations...');
-    if (loading) loading.style.display = 'block';
+    loading.style.display = 'block';
     
     // Load conversations using pagination (fetch multiple pages, then filter/sort/limit)
     let allConversations = [];
@@ -661,29 +651,21 @@ async function loadConversations() {
         console.log(`📦 Limited to ${TOTAL_LIMIT} most recent solo conversations`);
       }
 
-      state.allConversations = finalConversations;
-      // Set our phoneNumberId if unknown, using the first conversation as reference
-      if (!state.phoneNumberId && finalConversations.length > 0) {
-        state.phoneNumberId = finalConversations[0].phoneNumberId || null;
-      }
-      // Apply current search filter if any, else render all
-      if (state.searchQuery && state.searchQuery.trim() !== '') {
-        filterConversations(state.searchQuery);
-      } else {
-        state.conversations = state.allConversations;
-        renderConversations();
-      }
-      console.log(`🎯 Loaded ${finalConversations.length} conversations total (solo only)`);
+      state.conversations = finalConversations;
+  // Set our phoneNumberId if unknown, using the first conversation as reference
+  if (!state.phoneNumberId && finalConversations.length > 0) {
+    state.phoneNumberId = finalConversations[0].phoneNumberId || null;
+  }
+  renderConversations();
+  console.log(`🎯 Rendered ${finalConversations.length} conversations total (solo only)`);
     } else {
       list.innerHTML = '<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">Nenhuma conversa encontrada</div>';
     }
   } catch (error) {
     console.error('Error loading conversations:', error);
-    if (list) {
-      list.innerHTML = `<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('error_loading_conversations')}</div>`;
-    }
+    list.innerHTML = `<div class="empty-state" style="padding:20px;text-align:center;color:var(--muted)">${i18next.t('error_loading_conversations')}</div>`;
   } finally {
-    if (loading) loading.style.display = 'none';
+    loading.style.display = 'none';
     window.isLoadingConversations = false;
   }
 }
@@ -777,40 +759,6 @@ function renderConversations() {
   window.isRendering = false;
 }
 
-// ======= Conversations Search =======
-function filterConversations(query) {
-  const q = (query || '').trim().toLowerCase();
-  if (!q) {
-    state.conversations = state.allConversations;
-    renderConversations();
-    return;
-  }
-  const qDigits = q.replace(/\D/g, '');
-  state.conversations = state.allConversations.filter(conv => {
-    const number = (Array.isArray(conv.participants) ? conv.participants[0] : conv.phoneNumber) || '';
-    const name = conv.participantContacts?.[0]?.displayName || '';
-    const subtitle = conv.participantContacts?.[0]?.company || '';
-    const lastMessage = conv.lastMessage || {};
-    const msg = lastMessage.content || lastMessage.text || lastMessage.body || '';
-    const normalizedNumber = number.replace(/\D/g, '');
-    const matchDigits = qDigits ? normalizedNumber.includes(qDigits) : false;
-    const matchText = name.toLowerCase().includes(q) || number.toLowerCase().includes(q) || subtitle.toLowerCase().includes(q) || msg.toLowerCase().includes(q);
-    return matchDigits || matchText;
-  });
-  renderConversations();
-}
-
-function setupSearch() {
-  const input = document.querySelector('.search input');
-  if (!input) return;
-  let timer = null;
-  input.addEventListener('input', (e) => {
-    state.searchQuery = e.target.value || '';
-    clearTimeout(timer);
-    timer = setTimeout(() => filterConversations(state.searchQuery), 150);
-  });
-}
-
 function selectConversation(conv) {
   // Get contact information if available
   const contactInfo = conv.participantContacts?.[0];
@@ -850,49 +798,6 @@ function showChatInterface() {
 }
 
 // ======= Messages =======
-
-// Função centralizada para adicionar mensagens sem duplicação
-function addMessageToState(message) {
-  // Verificar duplicação por múltiplos critérios
-  const isDuplicate = state.messages.some(existing => {
-    // 1. Mesmo ID (mais confiável)
-    if (message.id && existing.id && message.id === existing.id) return true;
-    
-    // 2. Mesmo tempId (para mensagens otimistas)
-    if (message._tempId && existing._tempId && message._tempId === existing._tempId) return true;
-    
-    // 3. Mesmo conteúdo + direção + timestamp próximo (fallback)
-    const sameContent = (message.content || message.text || '').trim() === (existing.content || existing.text || '').trim();
-    const sameDirection = message.direction === existing.direction;
-    const timeDiff = Math.abs(new Date(message.createdAt) - new Date(existing.createdAt));
-    if (sameContent && sameDirection && timeDiff < 3000) return true;
-    
-    // 4. Para mensagens traduzidas: verificar texto original
-    if (message._originalText && existing._originalText && 
-        message._originalText.trim() === existing._originalText.trim() &&
-        message.direction === existing.direction &&
-        timeDiff < 3000) return true;
-    
-    return false;
-  });
-  
-  if (!isDuplicate) {
-    state.messages.push(message);
-    return true;
-  }
-  return false;
-}
-
-// Função para atualizar mensagem existente
-function updateMessageInState(criteria, updates) {
-  const index = state.messages.findIndex(msg => criteria(msg));
-  if (index !== -1) {
-    state.messages[index] = { ...state.messages[index], ...updates };
-    return true;
-  }
-  return false;
-}
-
 async function loadMessages() {
   if (!state.active) return;
   
@@ -1091,27 +996,18 @@ async function sendMessage() {
       messageInput.value = '';
       sendBtn.classList.remove('enabled');
 
-      // Extrair conteúdo/ID que o backend retornou (mensagem já traduzida)
-      const serverContent = (
-        resp?.data?.content || resp?.data?.text || resp?.content || resp?.text || text
-      );
-      const serverId = (resp?.data?.id || resp?.id);
-
       // If this is a new conversation without phoneNumberId, do optimistic update
       if (!state.active.phoneNumberId) {
         const optimistic = {
-          id: serverId || `local-${Date.now()}`,
-          content: serverContent,
-          text: serverContent,
+          id: `local-${Date.now()}`,
+          content: text,
+          text,
           to: [state.active.participant],
           direction: 'outgoing',
           createdAt: new Date().toISOString(),
           status: 'pending'
         };
-        // Guardar original para heurística futura (se necessário)
-        optimistic._originalText = text;
-        optimistic._tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        addMessageToState(optimistic);
+        state.messages.push(optimistic);
         renderMessages();
 
         // Após envio, aguarde a conversa real aparecer e abra-a
@@ -1125,15 +1021,13 @@ async function sendMessage() {
       } else {
         // Atualiza preview da conversa na lista imediatamente
         const previewMsg = {
-          id: serverId || `local-${Date.now()}`,
-          content: serverContent,
+          id: `local-${Date.now()}`,
+          content: text,
           direction: 'outgoing',
           to: [state.active.participant],
           createdAt: new Date().toISOString(),
           status: 'pending'
         };
-        previewMsg._originalText = text;
-        previewMsg._tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const idx = state.conversations.findIndex(c => c.id === state.active.id || (Array.isArray(c.participants) && c.participants.includes(state.active.participant)) );
         if (idx !== -1) {
           state.conversations[idx].lastMessage = previewMsg;
@@ -1146,7 +1040,7 @@ async function sendMessage() {
           renderConversations();
         }
         // UI otimista: insere a mensagem local na janela atual sem novo fetch
-        addMessageToState(previewMsg);
+        state.messages.push(previewMsg);
         renderMessages();
       }
     }
@@ -1168,23 +1062,7 @@ async function sendMessage() {
         // Success on retry
         messageInput.value = '';
         sendBtn.classList.remove('enabled');
-        // Atualiza último otimista com conteúdo retornado (traduzido)
-        const serverContent2 = (
-          resp2?.data?.content || resp2?.data?.text || resp2?.content || resp2?.text || messageInput.value.trim()
-        );
-        const serverId2 = (resp2?.data?.id || resp2?.id);
-        for (let i = state.messages.length - 1; i >= 0; i--) {
-          const m = state.messages[i];
-          const toMatch = Array.isArray(m.to) ? m.to[0] : m.to;
-          const isFromMe = m.direction === 'outgoing' || (m.from && m.from === state.phoneNumberId);
-          if (isFromMe && toMatch === state.active.participant && (m.status === 'pending' || (m.id && m.id.startsWith('local-')))) {
-            m.content = serverContent2;
-            m.text = serverContent2;
-            if (serverId2) m.id = serverId2;
-            break;
-          }
-        }
-        renderMessages();
+        // Mantém UI otimista; SSE cuidará do estado final
       }
     } catch (err2) {
       console.error('Final send failure:', err2);
@@ -1233,83 +1111,7 @@ document.getElementById('outLang').addEventListener('change', (e) => {
   localStorage.setItem('outLang', state.outLang);
 });
 
-  // ======= SSE for Real-time Updates =======
-// Fallback de polling quando SSE não conecta (sem alterar proxies)
-let pollTimer = null;
-let pollIntervalMs = 2000;
-let sseReady = false;
-let pollInitialized = false;
-
-async function pollActiveConversationOnce() {
-  try {
-    if (!state.active || !state.active.phoneNumberId) return;
-    const resp = await API.listMessages(state.active.phoneNumberId, state.active.participant);
-    const incoming = Array.isArray(resp?.data) ? resp.data : [];
-    incoming.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
-    // Atualiza/mescla mensagens existentes e resolve pendentes
-    let hasUpdates = false;
-    for (const msg of incoming) {
-      const hasId = !!msg.id;
-      const isOutgoing = msg.direction === 'outgoing';
-
-      // Tentar casar com a última mensagem pendente otimista
-      if (isOutgoing) {
-        const updated = updateMessageInState(
-          m => (m.id?.startsWith('local-') || m.status === 'pending') &&
-               (m.direction === 'outgoing' || (m.from && m.from === state.phoneNumberId)),
-          {
-            id: msg.id || `delivered-${Date.now()}`,
-            status: msg.status || 'delivered',
-            createdAt: msg.createdAt,
-            content: msg.content || msg.text,
-            text: msg.content || msg.text
-          }
-        );
-        if (updated) {
-          hasUpdates = true;
-          continue;
-        }
-      }
-
-      // Inserir mensagens ainda não presentes usando função centralizada
-      if (addMessageToState(msg)) {
-        hasUpdates = true;
-      }
-    }
-
-    if (hasUpdates) {
-      renderMessages();
-    }
-
-    // Atualiza preview da conversa ativa
-    const newest = incoming[incoming.length - 1];
-    if (newest) {
-      const idx = state.conversations.findIndex(c => c.id === (state.active?.id) || (Array.isArray(c.participants) && c.participants.includes(state.active?.participant)));
-      if (idx !== -1) {
-        state.conversations[idx].lastMessage = newest;
-        state.conversations[idx].lastActivityAt = newest.createdAt;
-        renderConversations();
-      }
-    }
-  } catch (_) {
-    // Silenciar erros transitórios durante polling
-  }
-}
-
-function startPollingFallback() {
-  if (pollTimer) return;
-  pollInitialized = true;
-  updateConnectionStatus('connected'); // Conectado (modo fallback)
-  pollTimer = setInterval(pollActiveConversationOnce, pollIntervalMs);
-}
-
-function stopPollingFallback() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-}
+// ======= SSE for Real-time Updates =======
 function updateConversationWithNewMessage(message) {
   // Determine participant (remote number) robustly
   let participantNumber = (Array.isArray(message.participants) && message.participants.length === 1)
@@ -1355,30 +1157,11 @@ function updateConversationWithNewMessage(message) {
   }
 }
 
-// SSE connection state
-let sse;
-let sseRetry = 0;
-
 function startSSE() {
   try {
-    // Close previous connection if any
-    if (sse) {
-      try { sse.close(); } catch (_) {}
-    }
-
-    sseReady = false;
-    sse = new EventSource('/api/sse');
-    // Caso não conecte rápido, ativa fallback por polling sem mexer em proxies
-    setTimeout(() => { if (!sseReady && !pollInitialized) startPollingFallback(); }, 2000);
-    // Marca conexão como pronta ao receber o evento inicial do servidor
-    sse.addEventListener('ready', () => {
-      sseRetry = 0;
-      sseReady = true;
-      stopPollingFallback();
-      updateConnectionStatus('connected');
-    });
+    const eventSource = new EventSource('/api/sse');
     
-    sse.addEventListener('openphone', (event) => {
+    eventSource.addEventListener('openphone', (event) => {
       const payload = JSON.parse(event.data || '{}');
       const type = payload?.type || payload?.event?.type || '';
       const message = payload?.data || payload;
@@ -1398,38 +1181,41 @@ function startSSE() {
 
       if (isForActive) {
         if (!state.active.phoneNumberId) {
-          const updated = updateMessageInState(
-            m => m.id?.startsWith('local-') && m.direction === 'outgoing',
-            {
-              id: message.id || `delivered-${Date.now()}`,
-              status: 'delivered',
-              content: message.content || message.text,
-              text: message.content || message.text
-            }
-          );
-          if (updated) renderMessages();
+          const lastIdx = [...state.messages].reverse().findIndex(m => m.id?.startsWith('local-') && m.direction === 'outgoing');
+          if (lastIdx !== -1) {
+            const idx = state.messages.length - 1 - lastIdx;
+            const orig = state.messages[idx];
+            state.messages[idx] = { ...orig, id: message.id || orig.id, status: 'delivered' };
+          } else if (message && (message.content || message.text)) {
+            state.messages.push({ ...message, status: 'delivered' });
+          }
+          renderMessages();
           updateConversationWithNewMessage(message);
         } else {
           if (type === 'message.delivered') {
-            const updated = updateMessageInState(
-              m => (m.id?.startsWith('local-') || m.status === 'pending') && m.direction === 'outgoing',
-              {
-                id: message.id || `delivered-${Date.now()}`,
-                status: 'delivered',
-                content: message.content || message.text,
-                text: message.content || message.text
-              }
+            const lastPendingIdx = [...state.messages].reverse().findIndex(m =>
+              (m.id?.startsWith('local-') || m.status === 'pending') && m.direction === 'outgoing'
             );
-            if (updated) renderMessages();
-          } else {
-            // Mensagens recebidas: usar função centralizada
-            if (!message.from && state.active?.participant) {
-              message = { ...message, from: state.active.participant, direction: 'incoming' };
+            if (lastPendingIdx !== -1) {
+              const idx = state.messages.length - 1 - lastPendingIdx;
+              const orig = state.messages[idx];
+              state.messages[idx] = { ...orig, id: message.id || orig.id, status: 'delivered' };
+            } else if (message && (message.content || message.text)) {
+              state.messages.push({ ...message, status: 'delivered' });
             }
-            if (addMessageToState(message)) {
-              renderMessages();
+          } else {
+            // Mensagens recebidas: se faltar id, ainda assim exibir para conversa ativa
+            const hasId = !!message.id;
+            const already = hasId && state.messages.some(m => m.id && m.id === message.id);
+            if (!already) {
+              // Se não há campos de roteamento, associar à conversa ativa
+              if (!message.from && state.active?.participant) {
+                message = { ...message, from: state.active.participant, direction: 'incoming' };
+              }
+              state.messages.push(message);
             }
           }
+          renderMessages();
           updateConversationWithNewMessage(message);
         }
       } else {
@@ -1437,31 +1223,17 @@ function startSSE() {
       }
     });
     
-    sse.addEventListener('open', () => {
-      sseRetry = 0;
-      sseReady = true;
-      stopPollingFallback();
+    eventSource.addEventListener('open', () => {
       updateConnectionStatus('connected');
     });
     
-    sse.addEventListener('error', () => {
+    eventSource.addEventListener('error', () => {
       updateConnectionStatus('disconnected');
-      try { sse.close(); } catch (_) {}
-      // Mantém fallback ativo enquanto reconecta SSE em background
-      if (!pollTimer) startPollingFallback();
-      const delay = Math.min(30000, 1000 * Math.pow(2, sseRetry || 0));
-      sseRetry = (sseRetry || 0) + 1;
-      setTimeout(startSSE, delay);
     });
     
   } catch (error) {
     console.warn('SSE not available:', error);
-    // Ativa fallback e continua tentando reconectar
-    startPollingFallback();
     updateConnectionStatus('disconnected');
-    const delay = Math.min(30000, 1000 * Math.pow(2, sseRetry || 0));
-    sseRetry = (sseRetry || 0) + 1;
-    setTimeout(startSSE, delay);
   }
 }
 
@@ -1489,14 +1261,11 @@ async function init() {
   // Apply translations
   applyI18n();
   
-  // Start SSE connection first
-  startSSE();
-
-  // Load conversations after starting SSE
+  // Load conversations
   await loadConversations();
   
-  // Setup search after initial render
-  setupSearch();
+  // Start SSE
+  startSSE();
 }
 
 // New Message modal and creation
@@ -1545,7 +1314,7 @@ if (confirmNewMessage) confirmNewMessage.addEventListener('click', () => {
     if (existing) {
       selectConversation(existing);
       closeNewMessageModal();
-      // loadMessages() já é chamado dentro de selectConversation() - removendo chamada duplicada
+      loadMessages();
       return;
     }
     createEmptyConversation(number);
